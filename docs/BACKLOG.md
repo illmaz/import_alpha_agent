@@ -13,6 +13,18 @@
 - [x] Add tests for Event schema
 - [x] Run full local event flow end to end
 
+## Phase 2 — Autonomous orchestration (done)
+
+- [x] Create llm.py (LLM base, FakeLLM default, AnthropicLLM, OpenAICompatibleLLM)
+- [x] Create GoalPlan model with roles restricted to known workers
+- [x] Rewrite orchestrator.py as a `user.goals` daemon that plans via LLM
+- [x] Track step completion via a threaded `artifact.created` consumer
+- [x] Publish `goal.completed` with an LLM synthesis summary
+- [x] Loop guards (MAX_STEPS_PER_GOAL, MAX_REPLANS) escalating to `human.approval.required`
+- [x] Create scripts/submit_goal.py
+- [x] Tests using FakeLLM and a mocked producer (no live broker)
+- [ ] Add `engineering` and `landing` workers — plans touching those roles currently stall
+
 ## P1 — Product core
 
 - [ ] Add SQLite state store (tasks, events, artifacts)

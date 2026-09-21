@@ -30,13 +30,24 @@ Initial setup — repo, context docs, Python/Kafka agentic workflow skeleton.
 - Added artifact_logger.py (consumes `artifact.created`, prints the artifact to console)
 - **Verified the full flow end to end against a live broker**: PROD-001 travelled Orchestrator -> Router -> Product Worker -> Logger with no errors. `bitnamilegacy/kafka:3.9` starts and serves on localhost:9092 as configured, so P0 is now complete.
 
+**Phase 2 (LLM-powered orchestrator daemon) — FINISHED 2026-09-21.**
+
+- Added llm.py (`LLM` base, `FakeLLM` default, `AnthropicLLM`, `OpenAICompatibleLLM`; one static cache-friendly system prompt, hard `MAX_TOKENS` ceiling)
+- Added `WorkerRole` / `PlanStep` / `GoalPlan` to events.py (role restricted to known worker roles)
+- Rewrote orchestrator.py as a long-running daemon: consumes `user.goals`, plans via LLM, dispatches `task.created` per step, tracks `artifact.created` on a threaded consumer, publishes `goal.completed` with an LLM synthesis
+- Loop guards: `MAX_STEPS_PER_GOAL=5`, `MAX_REPLANS=2`; a breach publishes `human.approval.required` and halts that goal only
+- Added scripts/submit_goal.py (CLI to publish a plain-text goal)
+- Added tests/test_orchestrator.py (20 tests, FakeLLM + recording producer, no broker needed)
+- **Verified live**: goal `G-3f7086c2` planned into 2 steps, both routed and worked, `goal.completed` published with synthesis. 30/30 tests pass.
+
 ## In Progress
 
-- None — all of BACKLOG P0 is complete and awaiting review
+- None — Phase 2 is complete and awaiting review
 
 ## Next Actions
 
-1. Begin P1 (Product core): SQLite state store, then the FastAPI skeleton and the OpenAPI contract for the 4 MVP endpoints
+1. Add workers for the `engineering` and `landing` roles — only `product` has one, so any plan touching the other roles stalls forever (see docs/DECISIONS.md)
+2. Then P1 (Product core): SQLite state store, FastAPI skeleton, OpenAPI contract for the 4 MVP endpoints
 
 ## Blocked
 
@@ -44,12 +55,4 @@ None.
 
 ## Decisions Log
 
-- 2026-09-21: Wedge = home organization category, US market.
-- 2026-09-21: Sell report-first + API credits; x402 is phase 2.
-- 2026-09-21: Build with Claude Code in normal VS Code first; Agent Sessions UI for parallel agents later.
-- 2026-09-21: Local Python is 3.9 (system default); project stack requires 3.12. Use `/opt/homebrew/bin/python3.12 -m venv .venv` for local dev/test — plain `python3` will fail on this repo's type hints.
-- 2026-09-21: `bitnami/kafka:3.9` is gone from Docker Hub (404). Bitnami retired versioned tags to the `bitnamilegacy` namespace in 2025, so docker-compose.yml pins `bitnamilegacy/kafka:3.9`. Alternative if that namespace is ever pulled: `apache/kafka:3.9.0` (verified available), which needs `KAFKA_*` env vars instead of Bitnami's `KAFKA_CFG_*`.
-
-- 2026-09-21: Workers stay dumb for now — `product_worker.py` emits a `status: "stub"` artifact with an empty `datapoints` list rather than a plausible-looking fake brief. Inventing numbers here would violate the AGENTS.md sourcing rule and risks a placeholder being mistaken for real data later. Real datapoints land once sources are wired.
-- 2026-09-21: `bus.consume` treats `UNKNOWN_TOPIC_OR_PART` as benign alongside `_PARTITION_EOF`. Consumers subscribe before a topic exists (it is auto-created on first produce), which otherwise logs a misleading ERROR on every worker startup.
-- 2026-09-21: Deleted the Redis-era `orchestrator.py`, `router_worker.py`, `product_worker.py`, `artifact_logger.py` and `Dockerfile`. They were written against a Redis bus (contradicting the frozen Kafka stack) and were hard-broken after bus.py was rewritten — every one failed with `ImportError: cannot import name 'Bus' from 'bus'`. A broken file is worse than no file; P0 items 5-8 will rebuild them on Kafka from scratch. Recoverable at `30c759c`.
+Moved to [DECISIONS.md](DECISIONS.md) — kept in one place so it does not drift.

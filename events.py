@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,3 +32,23 @@ class Event(BaseModel):
     agent: Optional[str] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_utc_now_iso)
+
+
+class WorkerRole(str, Enum):
+    PRODUCT = "product"
+    ENGINEERING = "engineering"
+    LANDING = "landing"
+
+
+WORKER_ROLES = tuple(role.value for role in WorkerRole)
+
+
+class PlanStep(BaseModel):
+    role: WorkerRole
+    task: str = Field(min_length=1)
+
+
+class GoalPlan(BaseModel):
+    goal_id: str
+    reasoning: str
+    steps: List[PlanStep] = Field(min_length=1)

@@ -3,3 +3,8 @@ pydantic>=2.9.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pytest>=8.3.0
+
+# Only needed for LLM_PROVIDER=anthropic / =openai. The default FakeLLM
+# provider imports neither, so tests and local dev run without them.
+anthropic>=0.40.0
+openai>=1.50.0
