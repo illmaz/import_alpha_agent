@@ -1,48 +1,69 @@
-"""Thin async pub/sub wrapper over Redis used by all services."""
+"""Kafka produce/consume helpers for the agent bus."""
 
 from __future__ import annotations
 
-import json
-import os
-from collections.abc import AsyncIterator
+import logging
+from typing import Callable, List, Optional
 
-import redis.asyncio as redis
+from confluent_kafka import Consumer, KafkaError, Producer
 
-from events import Event, Topic
+from events import Event
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+BOOTSTRAP_SERVERS = "localhost:9092"
+
+logger = logging.getLogger(__name__)
+
+_producer: Optional[Producer] = None
 
 
-class Bus:
-    def __init__(self, url: str = REDIS_URL) -> None:
-        self._url = url
-        self._client: redis.Redis | None = None
+def get_producer() -> Producer:
+    global _producer
+    if _producer is None:
+        _producer = Producer({"bootstrap.servers": BOOTSTRAP_SERVERS})
+    return _producer
 
-    async def connect(self) -> None:
-        if self._client is None:
-            self._client = redis.from_url(self._url, decode_responses=True)
 
-    async def close(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+def produce(topic: str, event: Event, key: str | None = None) -> None:
+    producer = get_producer()
+    producer.produce(
+        topic,
+        key=key.encode("utf-8") if key is not None else None,
+        value=event.model_dump_json().encode("utf-8"),
+    )
+    producer.flush()
 
-    async def publish(self, event: Event) -> None:
-        await self.connect()
-        assert self._client is not None
-        await self._client.publish(event.topic.value, event.model_dump_json())
 
-    async def subscribe(self, *topics: Topic) -> AsyncIterator[Event]:
-        await self.connect()
-        assert self._client is not None
-        pubsub = self._client.pubsub()
-        await pubsub.subscribe(*[t.value for t in topics])
-        try:
-            async for message in pubsub.listen():
-                if message["type"] != "message":
+def consume(topics: List[str], group_id: str, handler: Callable[[Event, str], None]) -> None:
+    consumer = Consumer(
+        {
+            "bootstrap.servers": BOOTSTRAP_SERVERS,
+            "group.id": group_id,
+            "auto.offset.reset": "earliest",
+        }
+    )
+    consumer.subscribe(topics)
+
+    try:
+        while True:
+            message = consumer.poll(1.0)
+            if message is None:
+                continue
+
+            if message.error():
+                # Reaching the end of a partition is normal, not a failure.
+                if message.error().code() == KafkaError._PARTITION_EOF:
                     continue
-                data = json.loads(message["data"])
-                yield Event.model_validate(data)
-        finally:
-            await pubsub.unsubscribe(*[t.value for t in topics])
-            await pubsub.aclose()
+                logger.error("kafka error: %s", message.error())
+                continue
+
+            try:
+                event = Event.model_validate_json(message.value())
+            except ValueError:
+                logger.exception("skipping malformed message on %s", message.topic())
+                continue
+
+            handler(event, message.topic())
+    except KeyboardInterrupt:
+        logger.info("consumer interrupted, shutting down")
+    finally:
+        consumer.close()
