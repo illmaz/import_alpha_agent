@@ -2,7 +2,7 @@
 
 ## Phase
 
-Initial setup — repo, context docs, Python/Kafka agentic workflow skeleton.
+Phase 3: Dockerized run lane with Kafka event bus.
 
 ## Completed
 
@@ -11,21 +11,23 @@ Initial setup — repo, context docs, Python/Kafka agentic workflow skeleton.
 - Defined agent org structure
 - Decided to start with Python + Kafka event bus (no LLM yet)
 - Created project context docs
+- Phase 2.5 shipped (5374037), 49 tests green, stall and escalation verified live
+- **Phase 3: Dockerized run lane** — `docker compose up` replaces six manual terminal windows
+  - Single Dockerfile (python:3.12-slim, requirements.txt, application code)
+  - docker-compose.yml with six services (orchestrator, router, product_worker, engineering_worker, landing_worker, artifact_logger) + Kafka
+  - .env.example with LLM_PROVIDER, LLM_API_KEY, LLM_MODEL, STEP_TTL_SECONDS, STALL_TICK_SECONDS, ACTIVE_ROLES
+  - BOOTSTRAP_SERVERS configurable via env in bus.py (default localhost:9092 for host dev; kafka:9092 inside compose)
+  - CLI script for submitting goals: `docker compose run --rm cli python scripts/submit_goal.py "..."`
+  - Backlog re-prioritization: step.started ack = P1, heartbeats = P2
+  - BROKER-RESILIENCE CHECK documented in DECISIONS.md
 
 ## In Progress
 
-- Set up repo and context docs
-- Prepare first Python/Kafka event bus
+None.
 
 ## Next Actions
 
-1. Create Python project structure
-2. Add docker-compose.yml for single-node Kafka
-3. Add requirements.txt (confluent-kafka, pydantic, fastapi, uvicorn, pytest)
-4. Add events.py (Pydantic Event model) and bus.py (produce/consume helpers)
-5. Add tests for the Event schema
-6. Run local event flow successfully
-7. Then: orchestrator.py, router_worker.py, product_worker.py, artifact_logger.py
+Run acceptance tests and record outcomes.
 
 ## Blocked
 
