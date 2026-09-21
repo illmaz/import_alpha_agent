@@ -7,7 +7,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
-from events import WORKER_ROLES
+from events import ACTIVE_ROLES
 
 # Hard ceiling applied to every call, whatever the provider.
 MAX_TOKENS = 4096
@@ -24,7 +24,9 @@ SYSTEM_PROMPT = (
     "PLAN: - break the stated goal into ordered steps. Reply with ONLY a JSON "
     "object, no prose and no code fences:\n"
     '{"reasoning": "<why this plan>", "steps": [{"role": "<role>", "task": "<what to do>"}]}\n'
-    f"Allowed roles: {', '.join(WORKER_ROLES)}. Use at most 5 steps.\n\n"
+    # sorted(): a frozenset's iteration order must not leak into the bytes we
+    # send, or the cached prefix changes between processes.
+    f"Allowed roles: {', '.join(sorted(ACTIVE_ROLES))}. Use at most 5 steps.\n\n"
     "SUMMARIZE: - the steps of a goal have finished and their artifacts follow. "
     "Reply with 2-3 plain sentences describing what was produced. No JSON.\n\n"
     "Never invent facts, prices, supplier names or measurements. Every real "

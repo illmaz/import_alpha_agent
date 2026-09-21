@@ -23,7 +23,17 @@
 - [x] Loop guards (MAX_STEPS_PER_GOAL, MAX_REPLANS) escalating to `human.approval.required`
 - [x] Create scripts/submit_goal.py
 - [x] Tests using FakeLLM and a mocked producer (no live broker)
-- [ ] Add `engineering` and `landing` workers — plans touching those roles currently stall
+- [x] Add `engineering` and `landing` workers — plans touching those roles currently stall
+
+## Phase 2.5 — Liveness (done)
+
+- [x] Add engineering_worker.py and landing_worker.py (honest stub pattern)
+- [x] Add ACTIVE_ROLES registry, enforced in GoalPlan validation
+- [x] Add stall detection (per-step TTL + ticker thread)
+- [x] First stall replans once; second stall escalates and halts that goal
+- [x] Record the liveness invariant in DECISIONS.md
+- [x] Tests with an injectable fake clock (no sleeping in tests)
+- [ ] Worker heartbeats — the TTL cannot tell a slow step from a dead worker
 
 ## P1 — Product core
 

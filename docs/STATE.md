@@ -40,14 +40,24 @@ Initial setup — repo, context docs, Python/Kafka agentic workflow skeleton.
 - Added tests/test_orchestrator.py (20 tests, FakeLLM + recording producer, no broker needed)
 - **Verified live**: goal `G-3f7086c2` planned into 2 steps, both routed and worked, `goal.completed` published with synthesis. 30/30 tests pass.
 
+**Phase 2.5 (liveness — every goal terminates) — FINISHED 2026-09-21.**
+
+- Added engineering_worker.py and landing_worker.py, mirroring product_worker's honest stub pattern (`status: "stub"`, `datapoints: []`)
+- Added `ACTIVE_ROLES` registry to events.py (env-overridable, defaults to all three roles); `GoalPlan` validation now rejects steps targeting a role with no worker, so the orchestrator cannot dispatch to one
+- Added stall detection: per-step dispatch timestamps, a 10s ticker thread, `STEP_TTL_SECONDS` (default 120, env-overridable). First stall replans once against the `MAX_REPLANS` budget; second stall publishes `human.approval.required` and halts that goal only
+- Replanned steps use generation-tagged ids (`{goal_id}-R1-S1`) so a late artifact from a stalled dispatch cannot falsely complete a goal
+- Recorded the liveness invariant in docs/DECISIONS.md
+- Added tests/test_liveness.py and tests/helpers.py (shared offline doubles); **49 tests pass**
+- **Verified live**: happy path completed with all three workers running; with the product worker deliberately absent, a goal stalled, replanned once, stalled again and escalated — `human.approval.required` confirmed on the topic with `reason=step_stalled`
+
 ## In Progress
 
-- None — Phase 2 is complete and awaiting review
+- None — Phase 2.5 is complete and awaiting review
 
 ## Next Actions
 
-1. Add workers for the `engineering` and `landing` roles — only `product` has one, so any plan touching the other roles stalls forever (see docs/DECISIONS.md)
-2. Then P1 (Product core): SQLite state store, FastAPI skeleton, OpenAPI contract for the 4 MVP endpoints
+1. P1 (Product core): SQLite state store, FastAPI skeleton, OpenAPI contract for the 4 MVP endpoints
+2. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
 
 ## Blocked
 

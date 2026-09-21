@@ -3,60 +3,16 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from events import Event, GoalPlan
+from events import GoalPlan
 from llm import FakeLLM
 from orchestrator import (
     APPROVAL_TOPIC,
     COMPLETED_TOPIC,
     MAX_STEPS_PER_GOAL,
     TASKS_TOPIC,
-    Orchestrator,
 )
 
-GOAL_ID = "G-TEST"
-
-
-class Recorder:
-    """Stands in for bus.produce and keeps everything that was published."""
-
-    def __init__(self):
-        self.sent = []
-
-    def __call__(self, topic, event, key=None):
-        self.sent.append((topic, event, key))
-
-    def topics(self):
-        return [topic for topic, _, _ in self.sent]
-
-    def on(self, topic):
-        return [event for sent_topic, event, _ in self.sent if sent_topic == topic]
-
-
-def goal_event(text="find home organization winners", goal_id=GOAL_ID):
-    return Event(event_type="user.goal", task_id=goal_id, agent="cli", payload={"goal": text})
-
-
-def artifact_for(task_id, summary="a brief"):
-    return Event(
-        event_type="artifact.created",
-        task_id=task_id,
-        agent="product_worker",
-        payload={"summary": summary},
-    )
-
-
-def plan_json(step_count=2, role="product"):
-    return json.dumps(
-        {
-            "reasoning": "because",
-            "steps": [{"role": role, "task": f"step {i}"} for i in range(1, step_count + 1)],
-        }
-    )
-
-
-def build(responses=None):
-    recorder = Recorder()
-    return Orchestrator(llm=FakeLLM(responses), producer=recorder), recorder
+from tests.helpers import GOAL_ID, artifact_for, build, goal_event, plan_json
 
 
 # ---------- GoalPlan validation ----------

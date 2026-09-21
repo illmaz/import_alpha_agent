@@ -3,6 +3,55 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## Phase 2.5 — Liveness (2026-09-21)
+
+### The liveness invariant
+
+**Every goal terminates in exactly one of three states:**
+
+1. **completed** — every step produced an artifact; `goal.completed` published.
+2. **escalated** — `human.approval.required` published for an unplannable or
+   stalled goal (`plan_validation_failed`, `step_stalled`, `empty_goal`).
+3. **guard-breached** — `human.approval.required` published because a loop
+   guard tripped (`max_steps_exceeded`).
+
+No goal may sit pending forever. Before Phase 2.5 two paths violated this: a
+plan targeting a role with no worker hung silently, and a crashed or slow worker
+left its step pending with nothing watching. Both now terminate.
+
+Anything added later that can leave a goal pending — new roles, sub-tasks,
+nested depth, external calls — must come with the path that ends it. When
+changing this area, the question to answer is "what ends this goal if the happy
+path never happens?"
+
+### ACTIVE_ROLES gates planning, not just dispatch
+
+`events.ACTIVE_ROLES` (env-overridable, default all three roles) is enforced
+inside `GoalPlan` validation, so an inactive role fails the plan rather than
+being filtered out of it. A silently dropped step would give a goal that
+completes while having skipped work the model thought was necessary — worse
+than a loud escalation. It also feeds `llm.SYSTEM_PROMPT`, so the model is only
+ever told about roles that can actually run.
+
+Set `ACTIVE_ROLES=product,landing` to run a subset while a worker is down.
+
+### Stall detection replans once, then halts
+
+The orchestrator stamps a dispatch time per step. A ticker thread (10s, env
+`STALL_TICK_SECONDS`) finds pending steps older than `STEP_TTL_SECONDS`
+(default 120). The first stall on a goal triggers one replan, drawn from the
+same `MAX_REPLANS` budget as validation retries — so a goal whose plan already
+needed a retry escalates on its first stall instead of replanning. The second
+stall always escalates.
+
+Replanned steps get generation-tagged ids (`{goal_id}-R1-S1`). Without that, a
+merely-slow worker's late artifact would arrive after the replan and satisfy a
+step it never worked on, completing the goal on false evidence.
+
+The TTL is wall-clock, not a worker heartbeat: a long-running legitimate step
+looks identical to a dead one. Raise `STEP_TTL_SECONDS` before adding slow work,
+or add heartbeats.
+
 ## Phase 2 — LLM orchestration (2026-09-21)
 
 ### FakeLLM is the default provider
