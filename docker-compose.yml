@@ -1,45 +1,113 @@
 version: "3.9"
 
 services:
-  redis:
-    image: redis:7-alpine
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     ports:
-      - "6379:6379"
+      - "9092:9092"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
       interval: 5s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 10
+
+  orchestrator:
+    build: .
+    command: python orchestrator.py
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
 
   router_worker:
     build: .
     command: python router_worker.py
+    restart: unless-stopped
     depends_on:
-      redis:
+      kafka:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      REDIS_URL: redis://redis:6379/0
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
 
   product_worker:
     build: .
     command: python product_worker.py
+    restart: unless-stopped
     depends_on:
-      redis:
+      kafka:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      REDIS_URL: redis://redis:6379/0
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
+
+  engineering_worker:
+    build: .
+    command: python product_worker.py
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
+
+  landing_worker:
+    build: .
+    command: python product_worker.py
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
 
   artifact_logger:
     build: .
     command: python artifact_logger.py
+    restart: unless-stopped
     depends_on:
-      redis:
+      kafka:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      REDIS_URL: redis://redis:6379/0
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
       ARTIFACT_LOG_PATH: /data/artifacts.log.jsonl
     volumes:
       - artifact_data:/data
+
+  cli:
+    build: .
+    command: python scripts/submit_goal.py "default goal"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS:-kafka:9092}
 
 volumes:
   artifact_data:
