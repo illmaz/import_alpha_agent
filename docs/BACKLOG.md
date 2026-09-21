@@ -2,16 +2,16 @@
 
 ## P0 — Foundation (do first)
 
-- [ ] Create Python project structure
-- [ ] Add docker-compose.yml for single-node Kafka (KRaft)
-- [ ] Create events.py (Pydantic Event model)
-- [ ] Create bus.py (Kafka produce/consume helpers, localhost:9092)
-- [ ] Create orchestrator.py (publishes task.created events)
-- [ ] Create router_worker.py (routes to task.assigned.{role})
-- [ ] Create product_worker.py (emits artifact.created)
-- [ ] Create artifact_logger.py (records events)
-- [ ] Add tests for Event schema
-- [ ] Run full local event flow end to end
+- [x] Create Python project structure
+- [x] Add docker-compose.yml for single-node Kafka (KRaft)
+- [x] Create events.py (Pydantic Event model)
+- [x] Create bus.py (Kafka produce/consume helpers, localhost:9092)
+- [x] Create orchestrator.py (publishes task.created events)
+- [x] Create router_worker.py (routes to task.assigned.{role})
+- [x] Create product_worker.py (emits artifact.created)
+- [x] Create artifact_logger.py (records events)
+- [x] Add tests for Event schema
+- [x] Run full local event flow end to end
 
 ## P1 — Product core
 

@@ -50,8 +50,13 @@ def consume(topics: List[str], group_id: str, handler: Callable[[Event, str], No
                 continue
 
             if message.error():
-                # Reaching the end of a partition is normal, not a failure.
-                if message.error().code() == KafkaError._PARTITION_EOF:
+                # Neither is a failure: partition EOF just means fully read, and
+                # an unknown topic is expected until auto-create fires on first
+                # produce, which consumers routinely wait through at startup.
+                if message.error().code() in (
+                    KafkaError._PARTITION_EOF,
+                    KafkaError.UNKNOWN_TOPIC_OR_PART,
+                ):
                     continue
                 logger.error("kafka error: %s", message.error())
                 continue
