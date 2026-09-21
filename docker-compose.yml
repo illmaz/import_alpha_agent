@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  router_worker:
+    build: .
+    command: python router_worker.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+
+  product_worker:
+    build: .
+    command: python product_worker.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+
+  artifact_logger:
+    build: .
+    command: python artifact_logger.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ARTIFACT_LOG_PATH: /data/artifacts.log.jsonl
+    volumes:
+      - artifact_data:/data
+
+volumes:
+  artifact_data:
