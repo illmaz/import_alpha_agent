@@ -22,7 +22,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bus import consume  # noqa: E402
+from bus import consume, install_signal_handlers  # noqa: E402
 from events import Event  # noqa: E402
 
 from app.database import init_models  # noqa: E402
@@ -102,12 +102,14 @@ def handle(event: Event, topic: str) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    install_signal_handlers("report-listener")
     asyncio.run(init_models())
     print(
         f"[report-listener] listening on '{COMPLETED_TOPIC}' and "
         f"'{APPROVAL_TOPIC}' (group={GROUP_ID})"
     )
     consume([COMPLETED_TOPIC, APPROVAL_TOPIC], GROUP_ID, handle)
+    print("[report-listener] shutdown complete")
 
 
 if __name__ == "__main__":

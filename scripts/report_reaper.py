@@ -18,10 +18,11 @@ import json
 import logging
 import os
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from bus import install_signal_handlers, wait_for_shutdown  # noqa: E402
 
 from app.database import init_models  # noqa: E402
 from app.schemas import ReportStatus, ResultStatus  # noqa: E402
@@ -112,6 +113,7 @@ async def reap_once(now: datetime | None = None) -> list[str]:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    install_signal_handlers("report-reaper")
     asyncio.run(init_models())
     print(
         f"[report-reaper] sweeping every {INTERVAL_SECONDS:.0f}s for reports "
@@ -127,7 +129,13 @@ def main() -> None:
             # A crash here silently disables the guard, which is the failure
             # this daemon exists to prevent. Log and keep sweeping.
             logger.exception("sweep failed")
-        time.sleep(INTERVAL_SECONDS)
+
+        # Not time.sleep: a signal arriving one second into a 60s interval
+        # would otherwise wait out the remaining 59 and be SIGKILLed first.
+        if wait_for_shutdown(INTERVAL_SECONDS):
+            break
+
+    print("[report-reaper] shutdown complete")
 
 
 if __name__ == "__main__":

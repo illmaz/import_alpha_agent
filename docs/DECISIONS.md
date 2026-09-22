@@ -3,6 +3,70 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## Operational hardening — shutdown, secrets, LLM toggle (2026-09-22)
+
+### Exit 137 was PID 1 ignoring SIGTERM
+
+Every daemon runs as PID 1 in its container (`python orchestrator.py` is the
+image's command, so there is no init process above it). **The kernel does not
+apply default signal dispositions to PID 1**: a signal whose action is the
+default is *ignored* rather than terminating the process, unless the process
+installs a handler.
+
+So `docker compose stop` sent SIGTERM, nothing happened, the 10s grace period
+expired, and Docker sent SIGKILL — exit 137, with `consumer.close()` never
+reached and offsets never committed. On restart the group re-read from its
+last committed position, which is how in-flight goals could be replayed.
+
+Confirmed from inside the container before fixing:
+
+    SigCgt: 0000000100000002     # caught signals
+                           ^ bit 1 = SIGINT
+    # bit 14 (0x4000) = SIGTERM is NOT set
+
+SIGINT *was* caught, because Python installs its own SIGINT handler to raise
+KeyboardInterrupt. That is exactly why Ctrl+C appeared to work locally while
+Docker shutdowns did not — the interactive case hid the bug.
+
+`bus.install_signal_handlers()` now installs explicit SIGTERM and SIGINT
+handlers that set a process-wide `threading.Event`, and `bus.consume()` checks
+it each iteration instead of looping on `while True`. Verified: all nine
+containers now exit 0 on `docker compose stop`, down from 137.
+
+The event is process-wide rather than per-consumer because the orchestrator
+runs a second consumer on a thread; one signal has to stop both, and both
+must commit their own offsets.
+
+### The reaper waits on the event, not on time.sleep
+
+`report_reaper` slept 60s between sweeps. A SIGTERM arriving one second in
+would have waited out the remaining 59 and been SIGKILLed first. It now uses
+`bus.wait_for_shutdown(INTERVAL_SECONDS)`, which returns early on a signal.
+
+Any future daemon that polls on a timer has the same trap.
+
+### .gitignore denies by pattern, not by filename
+
+`.env` alone was never enough: `.env.backup.<ts>` written by `live_demo.sh`
+was a different filename holding the same key, and it reached the index once
+(caught before pushing). The rules are now `.env`, `.env.*` with an explicit
+`!.env.example` negation, plus `*.backup*`, `*.log`, `*.dump`, `*.sql` and
+`*.sqlite*` — the file types that capture environment contents in passing.
+
+Naming one file is a guess about which filename a secret will land in. Denying
+the shape is not.
+
+### toggle_llm.sh reads the key with `read -s`
+
+`export LLM_API_KEY=sk-...` puts the key in the terminal scrollback *and* in
+shell history, where it survives long after the session. The toggle script
+reads it with `read -rs` (no echo), writes it straight into `.env`, and prints
+only a character count when reporting status.
+
+`toggle_llm.sh fake` deliberately leaves the stored key in place. Switching
+back should not require pasting it again, and FakeLLM never reads it — the
+provider switch is what stops the spend, not deleting the credential.
+
 ## P2.1 — API key auth and prepaid credits (2026-09-22)
 
 ### SHA-256, not bcrypt, because these keys are not passwords

@@ -3,7 +3,7 @@
 import logging
 import time
 
-from bus import consume, produce
+from bus import consume, install_signal_handlers, produce
 from events import Event
 
 SOURCE_TOPIC = "task.assigned.landing"
@@ -37,6 +37,7 @@ def handle(event: Event, topic: str) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    install_signal_handlers("landing")
     print(f"[landing] listening on '{SOURCE_TOPIC}' (group={GROUP_ID})")
     consume([SOURCE_TOPIC], GROUP_ID, handle)
 

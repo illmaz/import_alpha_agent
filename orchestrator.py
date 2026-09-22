@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from bus import consume, produce
+from bus import consume, install_signal_handlers, produce
 from events import Event, GoalPlan
 from llm import LLM, SYSTEM_PROMPT, get_llm
 
@@ -311,6 +311,8 @@ class Orchestrator:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # Before any consumer starts, so a signal arriving during startup is caught.
+    install_signal_handlers("orchestrator")
     orchestrator = Orchestrator()
 
     threading.Thread(
@@ -327,6 +329,12 @@ def main() -> None:
         f"'{ARTIFACTS_TOPIC}', step TTL {STEP_TTL_SECONDS:.0f}s"
     )
     consume([GOALS_TOPIC], GOALS_GROUP, orchestrator.handle_goal)
+
+    # Reached only once the goals loop has seen the shutdown flag and closed
+    # its consumer. The artifact consumer shares the flag and is closing on
+    # its own thread; it is a daemon thread, so we do not join it — its
+    # offsets commit in its own finally block.
+    print("[orchestrator] shutdown complete")
 
 
 if __name__ == "__main__":

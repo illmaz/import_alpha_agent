@@ -2,7 +2,7 @@
 
 import logging
 
-from bus import consume
+from bus import consume, install_signal_handlers
 from events import Event
 
 SOURCE_TOPIC = "artifact.created"
@@ -23,6 +23,7 @@ def handle(event: Event, topic: str) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    install_signal_handlers("logger")
     print(f"[logger] listening on '{SOURCE_TOPIC}' (group={GROUP_ID})")
     consume([SOURCE_TOPIC], GROUP_ID, handle)
 

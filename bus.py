@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
+import threading
 from typing import Callable, List, Optional
 
 from confluent_kafka import Consumer, KafkaError, Producer
@@ -15,6 +17,63 @@ from events import Event
 BOOTSTRAP_SERVERS = os.environ.get("BOOTSTRAP_SERVERS", "localhost:9092")
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Graceful shutdown
+# ---------------------------------------------------------------------------
+# Each daemon runs as PID 1 in its container, and the kernel does NOT apply
+# default signal dispositions to PID 1. An uncaught SIGTERM is therefore
+# silently *ignored* rather than terminating the process: `docker compose
+# stop` waits out its grace period and then SIGKILLs, which is exit 137 and
+# means consumer.close() never ran, so offsets were never committed.
+#
+# Installing an explicit handler is what makes SIGTERM terminate at all here.
+# SIGINT is caught by Python already (it raises KeyboardInterrupt), which is
+# why Ctrl+C worked locally while Docker shutdowns did not — the local case
+# hid the bug.
+#
+# The event is process-wide on purpose: the orchestrator runs a second
+# consumer on a thread, and one signal has to stop both.
+_shutdown = threading.Event()
+
+
+def request_shutdown() -> None:
+    """Ask every consume loop in this process to finish and return."""
+    _shutdown.set()
+
+
+def is_shutting_down() -> bool:
+    return _shutdown.is_set()
+
+
+def wait_for_shutdown(timeout: float) -> bool:
+    """Sleep up to `timeout`, waking early on shutdown. Returns True if asked to stop.
+
+    Used instead of time.sleep by daemons that poll on a timer, so a signal is
+    acted on immediately rather than after the remainder of the interval.
+    """
+    return _shutdown.wait(timeout)
+
+
+def install_signal_handlers(name: str = "daemon") -> None:
+    """Make SIGTERM and SIGINT stop the consume loops cleanly.
+
+    Call once from a daemon's main() before consuming. Safe to call from the
+    main thread only, which is where signal handlers must be installed.
+    """
+
+    def _handle(signum, _frame) -> None:
+        signal_name = signal.Signals(signum).name
+        print(f"[{name}] {signal_name} received - finishing current message and closing")
+        request_shutdown()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _handle)
+        except ValueError:
+            # Not the main thread; the main thread's handler covers us.
+            logger.debug("could not install %s handler off the main thread", sig)
+
 
 _producer: Optional[Producer] = None
 
@@ -47,7 +106,9 @@ def consume(topics: List[str], group_id: str, handler: Callable[[Event, str], No
     consumer.subscribe(topics)
 
     try:
-        while True:
+        while not _shutdown.is_set():
+            # The 1s timeout bounds how long a shutdown waits: the loop can
+            # only notice the flag between polls.
             message = consumer.poll(1.0)
             if message is None:
                 continue
@@ -72,6 +133,11 @@ def consume(topics: List[str], group_id: str, handler: Callable[[Event, str], No
 
             handler(event, message.topic())
     except KeyboardInterrupt:
+        # Only reachable if a handler was not installed; kept so an
+        # interactive run without install_signal_handlers still exits cleanly.
         logger.info("consumer interrupted, shutting down")
     finally:
+        # Commits offsets and leaves the consumer group, so a restart resumes
+        # where this process stopped instead of replaying or skipping.
         consumer.close()
+        logger.info("consumer closed for group %s", group_id)

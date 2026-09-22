@@ -8,3 +8,21 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 .env.backup.*
+
+# --- secrets ----------------------------------------------------------
+# .env holds live API keys. The bare name is not enough: a stray .env.local
+# or .env.backup.1790094373 is just as dangerous, and one of those did reach
+# the index once (recovered before it was pushed — see DECISIONS.md).
+.env
+.env.*
+!.env.example
+*.backup
+*.backup.*
+
+# --- anything that can capture a key in passing ------------------------
+# Logs, dumps and exports routinely contain environment contents.
+*.log
+*.dump
+*.sql
+*.sqlite
+*.sqlite3

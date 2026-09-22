@@ -290,10 +290,42 @@ paid and got nothing. Reports carry no `account_id`, so the reaper cannot tell
 whom to credit. On the backlog as the first P2.2 item.
 
 
+**Operational hardening (shutdown, secrets, LLM toggle) — FINISHED 2026-09-22.**
+
+- **Graceful shutdown.** Every daemon ran as PID 1, and the kernel does not
+  apply default signal dispositions to PID 1 — so SIGTERM was *ignored*,
+  Docker's grace period expired, and SIGKILL gave exit 137 with offsets never
+  committed. Confirmed from `/proc/1/status` (`SigCgt` had SIGINT but not
+  SIGTERM) before fixing.
+  Added `bus.install_signal_handlers()`, `request_shutdown()`,
+  `wait_for_shutdown()`; `bus.consume()` now loops on a shutdown Event and
+  always reaches `consumer.close()`. Wired into orchestrator, router, all
+  three workers, artifact_logger, report_listener and report_reaper.
+  **All nine containers now exit 0 on `docker compose stop`** (was 137).
+- **Secret hygiene.** .gitignore now denies by pattern, not filename:
+  `.env`, `.env.*` (with `!.env.example`), `*.backup*`, `*.log`, `*.dump`,
+  `*.sql`, `*.sqlite*`. Verified the negation still leaves `.env.example`
+  tracked.
+- **Added `scripts/toggle_llm.sh`** (`fake` | `real` | `status`). Reads the
+  key with `read -rs` so it never enters scrollback or shell history, and
+  `status` prints only a character count. Switched the stack to
+  `LLM_PROVIDER=fake` — **unintended spend has stopped**.
+- **270 tests still pass.**
+
+**On the reported git leak:** no leak was found. Working tree was clean and in
+sync with origin; nothing staged, nothing tracked, and zero matches for
+`sk-proj-`/`sk-ant-` anywhere in git history. The only real key on disk is in
+`.env`, which is correctly ignored. The one scanner hit was a `.pyc` in a
+gitignored `__pycache__`, containing the literal `"sk-ant-something"` from a
+test fixture. The earlier `.env.backup` incident was already resolved and
+never pushed. The hardening above was applied anyway.
+
+
 ## In Progress
 
-- P2 monetization. P2.1 (auth + credits) is done and awaiting review.
-  Stripe, metering and x402 are not started.
+- P2 monetization. P2.1 (auth + credits) and operational hardening are done
+  and awaiting review. Stripe, metering and x402 are not started.
+- LLM provider is **fake** — no spend. `./scripts/toggle_llm.sh real` to switch.
 
 ## Next Actions
 
