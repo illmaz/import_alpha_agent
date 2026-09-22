@@ -17,6 +17,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 API="${API:-http://localhost:8000}"
+
+# Fall back to whatever .env already holds, so the settings only have to be
+# written once. Anything exported in the shell still wins. Only LLM_* keys are
+# read, and the value is taken verbatim after the first '=' so keys containing
+# '=' survive.
+if [ -f .env ]; then
+  for _key in LLM_PROVIDER LLM_API_KEY LLM_MODEL LLM_BASE_URL; do
+    if [ -z "$(eval "echo \${$_key:-}")" ]; then
+      _val=$(grep -m1 "^${_key}=" .env 2>/dev/null | cut -d= -f2- || true)
+      [ -n "$_val" ] && export "$_key=$_val"
+    fi
+  done
+  unset _key _val
+fi
+
 LLM_PROVIDER="${LLM_PROVIDER:-anthropic}"
 LLM_MODEL="${LLM_MODEL:-}"
 LLM_BASE_URL="${LLM_BASE_URL:-}"
@@ -28,15 +43,23 @@ ASSUME_YES="no"
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- checks ---
-[ -n "${LLM_API_KEY:-}" ] || fail "LLM_API_KEY is not set. Export it, or see .env.example."
+[ -n "${LLM_API_KEY:-}" ] || fail "LLM_API_KEY is not set. Put it in .env or export it (see .env.example)."
+
+# Catch the untouched placeholder here, rather than as a 401 after the stack
+# is already up and a container has been recreated.
+case "$LLM_API_KEY" in
+  *REPLACE*|your-key-here|sk-REPLACE-ME)
+    fail "LLM_API_KEY is still the placeholder. Edit .env and paste your real key."
+    ;;
+esac
 
 case "$LLM_PROVIDER" in
   anthropic)
     # llm.DEFAULT_ANTHROPIC_MODEL (claude-opus-5) applies if unset.
     ;;
   openai)
-    [ -n "$LLM_MODEL" ]    || fail "LLM_PROVIDER=openai requires LLM_MODEL."
-    [ -n "$LLM_BASE_URL" ] || fail "LLM_PROVIDER=openai requires LLM_BASE_URL (no endpoint is hardcoded)."
+    [ -n "$LLM_MODEL" ]    || fail "LLM_PROVIDER=openai requires LLM_MODEL (e.g. gpt-4o-mini)."
+    [ -n "$LLM_BASE_URL" ] || fail "LLM_PROVIDER=openai requires LLM_BASE_URL (e.g. https://api.openai.com/v1)."
     ;;
   fake)
     fail "LLM_PROVIDER=fake would not exercise a real model. Set anthropic or openai."
