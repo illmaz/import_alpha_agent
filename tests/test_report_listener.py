@@ -32,6 +32,9 @@ from app.services.report_store import (  # noqa: E402
 from events import Event  # noqa: E402
 
 
+TEST_ACCOUNT = "acct-listener-test"
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -40,7 +43,7 @@ def run(coro):
 def pending_report() -> str:
     """A stored, pending report exactly as POST /v1/reports leaves it."""
     report_id = new_report_id()
-    run(create_report(report_id))
+    run(create_report(report_id, TEST_ACCOUNT))
     body = ReportResponse(
         report_id=report_id,
         category="home_organization",
@@ -189,7 +192,7 @@ def test_a_failing_settle_does_not_crash_the_daemon(
 def test_settling_a_row_with_an_empty_body_still_records_the_status() -> None:
     """A row must never be left pending just because its body is missing."""
     report_id = new_report_id()
-    run(create_report(report_id))
+    run(create_report(report_id, TEST_ACCOUNT))
 
     report_listener.handle(completed_event(report_id), report_listener.COMPLETED_TOPIC)
 

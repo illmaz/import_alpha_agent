@@ -30,6 +30,9 @@ from app.services.report_store import (
 )
 
 
+TEST_ACCOUNT = "acct-store-test"
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -57,7 +60,7 @@ def test_new_report_id_is_prefixed_and_unique() -> None:
 
 def test_create_report_inserts_a_pending_row() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
 
     row = run(get_report(rid))
     assert isinstance(row, Report)
@@ -72,13 +75,13 @@ def test_get_report_returns_none_for_unknown_id() -> None:
 
 def test_pending_report_has_no_response_body_yet() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     assert run(get_report_response(rid)) is None
 
 
 def test_created_at_and_updated_at_are_populated() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     row = run(get_report(rid))
     assert row.created_at is not None
     assert row.updated_at is not None
@@ -89,7 +92,7 @@ def test_created_at_and_updated_at_are_populated() -> None:
 
 def test_update_report_stores_the_payload_and_status() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     run(update_report(rid, STATUS_READY, _sample_payload(rid)))
 
     row = run(get_report(rid))
@@ -99,7 +102,7 @@ def test_update_report_stores_the_payload_and_status() -> None:
 
 def test_update_report_rehydrates_into_the_response_model() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     run(update_report(rid, STATUS_READY, _sample_payload(rid)))
 
     report = run(get_report_response(rid))
@@ -110,7 +113,7 @@ def test_update_report_rehydrates_into_the_response_model() -> None:
 
 def test_update_report_rejects_an_unknown_status() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     with pytest.raises(ValueError, match="status must be one of"):
         run(update_report(rid, "banana", {}))
 
@@ -123,7 +126,7 @@ def test_update_report_raises_for_a_missing_row() -> None:
 
 def test_failed_status_is_accepted() -> None:
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     run(update_report(rid, STATUS_FAILED, {"report_id": rid}))
     assert run(get_report(rid)).status == STATUS_FAILED
 
@@ -133,8 +136,8 @@ def test_failed_status_is_accepted() -> None:
 
 def test_list_reports_filters_by_status() -> None:
     ready, pending = new_report_id(), new_report_id()
-    run(create_report(ready))
-    run(create_report(pending))
+    run(create_report(ready, TEST_ACCOUNT))
+    run(create_report(pending, TEST_ACCOUNT))
     run(update_report(ready, STATUS_READY, _sample_payload(ready)))
 
     ready_ids = [r.id for r in run(list_reports(status=STATUS_READY))]
@@ -146,13 +149,13 @@ def test_list_reports_filters_by_status() -> None:
 
 def test_list_reports_respects_limit() -> None:
     for _ in range(5):
-        run(create_report(new_report_id()))
+        run(create_report(new_report_id(), TEST_ACCOUNT))
     assert len(run(list_reports(limit=3))) == 3
 
 
 def test_count_and_clear() -> None:
     for _ in range(3):
-        run(create_report(new_report_id()))
+        run(create_report(new_report_id(), TEST_ACCOUNT))
     assert run(count_reports()) == 3
     run(clear_reports())
     assert run(count_reports()) == 0
@@ -169,7 +172,7 @@ def test_reports_survive_an_engine_restart() -> None:
     proves it reached the file rather than living in a session cache.
     """
     rid = new_report_id()
-    run(create_report(rid))
+    run(create_report(rid, TEST_ACCOUNT))
     run(update_report(rid, STATUS_READY, _sample_payload(rid)))
 
     run(reset_engine())

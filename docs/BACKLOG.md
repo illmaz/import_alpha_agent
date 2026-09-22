@@ -63,7 +63,6 @@
 - [x] Persist reports across container restarts (`scripts/verify_persistence.sh`)
 - [x] Tests against a temporary SQLite file (159 total)
 - [ ] Extend the state store to tasks, events and artifacts (only reports done)
-- [ ] Add Alembic before the first schema change to a populated table
 - [ ] Replace curated fixture with sourced data (`status="curated"` -> `"ok"`)
 - [ ] Revisit margin saturation — currently flat across all 20 products
 - [x] Wire POST /v1/reports to the Kafka lane (`app/services/kafka_publisher.py`)
@@ -80,8 +79,11 @@
 - [x] Add prepaid credit ledger (integer balances, atomic deduction)
 - [x] 402-on-empty-balance for POST /v1/reports
 - [x] Add scripts/manage_accounts.py (create/issue/top-up/revoke)
-- [ ] **Refund credits for reports the reaper fails** — needs account_id on
-      the report row; the customer currently pays for lane timeouts
+- [x] Add Alembic migrations (baseline + account_id on reports)
+- [x] Add account_id to the report row
+- [x] Refund credits when the reaper or the listener fails a report
+- [x] Make refunds idempotent across both daemons (settle_if_pending)
+- [ ] Append-only credit ledger (balance derived, history queryable)
 - [ ] Add Stripe Checkout for credit purchases
 - [ ] Add usage metering (per-account request/spend history)
 - [ ] Add x402 sandbox payment challenge (testnet only)

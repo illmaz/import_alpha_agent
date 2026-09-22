@@ -27,11 +27,12 @@ from events import Event  # noqa: E402
 
 from app.database import init_models  # noqa: E402
 from app.schemas import ReportStatus  # noqa: E402
+from app.services.billing import refund_report  # noqa: E402
 from app.services.report_store import (  # noqa: E402
     STATUS_FAILED,
     STATUS_READY,
     get_report,
-    update_report,
+    settle_if_pending,
 )
 
 COMPLETED_TOPIC = "goal.completed"
@@ -51,8 +52,14 @@ def _report_id(event: Event) -> str | None:
     return payload.get("report_id") or payload.get("goal_id") or event.task_id
 
 
-async def _settle(report_id: str, status: str, summary: str) -> bool:
-    """Write the outcome onto the stored report body. Returns False if no row."""
+async def _settle(report_id: str, status: str, summary: str, reason: str) -> bool:
+    """Write the outcome onto the stored report body. Returns False if no row.
+
+    A failure refunds the customer's credit — but only if *this* call won the
+    pending -> failed transition. Kafka is at-least-once, so the same
+    `goal.completed` can arrive twice, and the reaper may have already failed
+    a slow report; without that guard the account would be credited twice.
+    """
     row = await get_report(report_id)
     if row is None:
         return False
@@ -67,7 +74,15 @@ async def _settle(report_id: str, status: str, summary: str) -> bool:
         ReportStatus.READY.value if status == STATUS_READY else ReportStatus.FAILED.value
     )
     payload["summary"] = summary
-    await update_report(report_id, status, payload)
+
+    account_id = await settle_if_pending(report_id, status, payload)
+    if account_id is None:
+        # Already settled by the reaper or a duplicate delivery.
+        logger.info("%s was already settled; skipping", report_id)
+        return False
+
+    if status == STATUS_FAILED:
+        await refund_report(report_id, account_id, reason)
     return True
 
 
@@ -80,14 +95,15 @@ def handle(event: Event, topic: str) -> None:
 
     if topic == COMPLETED_TOPIC:
         status = STATUS_READY
+        reason = "goal.completed"
         summary = str(event.payload.get("summary", "")).strip() or "Goal completed."
     else:
         status = STATUS_FAILED
-        reason = event.payload.get("reason", "unknown")
+        reason = str(event.payload.get("reason", "unknown"))
         summary = f"Generation halted by the agent lane: {reason}."
 
     try:
-        settled = asyncio.run(_settle(report_id, status, summary))
+        settled = asyncio.run(_settle(report_id, status, summary, reason))
     except Exception:
         # One bad event must not stop every later report from settling.
         logger.exception("failed to settle %s from %s", report_id, topic)

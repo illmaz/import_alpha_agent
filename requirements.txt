@@ -5,6 +5,9 @@ aiosqlite>=0.19.0
 # SQLAlchemy's async bridge needs greenlet and does not always pull it in
 # (notably on arm64 macOS), where it fails at first connect, not at import.
 greenlet>=3.0.0
+# Schema migrations. create_all only ever ADDS tables; it silently ignores
+# a changed column on an existing one, which is why this is now required.
+alembic>=1.13.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pytest>=8.3.0

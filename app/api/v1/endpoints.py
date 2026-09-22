@@ -171,7 +171,7 @@ async def create_report(
         )
 
     report_id = report_store.new_report_id()
-    await report_store.create_report(report_id)
+    await report_store.create_report(report_id, account_id)
 
     items = load_opportunities()[: payload.max_products]
     report = ReportResponse(

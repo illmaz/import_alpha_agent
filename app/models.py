@@ -25,6 +25,9 @@ class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # Who paid for this report. Required so a failure can be refunded — before
+    # this column the reaper knew a report had died but not whom to credit.
+    account_id: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(
@@ -34,7 +37,10 @@ class Report(Base):
         DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
     )
 
-    __table_args__ = (Index("ix_reports_status", "status"),)
+    __table_args__ = (
+        Index("ix_reports_status", "status"),
+        Index("ix_reports_account_id", "account_id"),
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Report id={self.id!r} status={self.status!r}>"

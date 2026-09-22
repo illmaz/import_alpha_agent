@@ -17,11 +17,17 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.database import get_sessionmaker
 from app.models import Report
 from app.schemas import ReportResponse
+
+# Stamped on rows that predate billing by the account_id migration. Nobody
+# was charged for them, so they must never be refunded. The same literal is
+# written in alembic/versions/456aca293990_*.py — see that file for why it is
+# duplicated rather than imported.
+LEGACY_ACCOUNT_ID = "legacy-unknown"
 
 STATUS_PENDING = "pending"
 STATUS_READY = "ready"
@@ -33,16 +39,23 @@ def new_report_id() -> str:
     return f"R-{uuid.uuid4().hex[:8]}"
 
 
-async def create_report(report_id: str) -> None:
-    """Insert a pending row.
+async def create_report(report_id: str, account_id: str) -> None:
+    """Insert a pending row owned by `account_id`.
 
     Called before the report body exists so a crash mid-generation leaves a
-    visible `pending` row rather than nothing at all.
+    visible `pending` row rather than nothing at all. The owner is recorded
+    now because the daemon that later fails this report has no other way to
+    know whom to refund.
     """
     async with get_sessionmaker()() as session:
         async with session.begin():
             session.add(
-                Report(id=report_id, status=STATUS_PENDING, payload_json="{}")
+                Report(
+                    id=report_id,
+                    account_id=account_id,
+                    status=STATUS_PENDING,
+                    payload_json="{}",
+                )
             )
 
 
@@ -64,6 +77,38 @@ async def update_report(report_id: str, status: str, payload: Dict[str, Any]) ->
                 raise ValueError(f"no report {report_id!r} to update")
             report.status = status
             report.payload_json = json.dumps(payload, default=str)
+
+
+async def settle_if_pending(
+    report_id: str, status: str, payload: Dict[str, Any]
+) -> Optional[str]:
+    """Move a report out of `pending`, once. Returns the owning account, or None.
+
+    The return value is the refund authorisation: None means this call did not
+    perform the transition, so this caller must not refund.
+
+    This exists because refunds must be idempotent and two things can settle
+    the same report. Kafka delivery is at-least-once, so report_listener can
+    see the same `goal.completed` twice; and a slow lane can have the reaper
+    fail a report moments before the listener's event arrives. A plain
+    "set status, then refund" would credit the account twice. Making the
+    status change conditional on the row still being pending means exactly one
+    caller is told to refund.
+    """
+    if status not in VALID_STATUSES:
+        raise ValueError(f"status must be one of {sorted(VALID_STATUSES)}, got {status!r}")
+
+    async with get_sessionmaker()() as session:
+        async with session.begin():
+            result = await session.execute(
+                update(Report)
+                .where(Report.id == report_id, Report.status == STATUS_PENDING)
+                .values(status=status, payload_json=json.dumps(payload, default=str))
+            )
+            if result.rowcount != 1:
+                return None
+            row = await session.get(Report, report_id)
+            return row.account_id if row is not None else None
 
 
 async def get_report(report_id: str) -> Optional[Report]:

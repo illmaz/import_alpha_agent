@@ -106,18 +106,35 @@ async def add_credits(account_id: str, amount: int) -> int:
     return new_balance
 
 
-async def refund_credits(account_id: str, amount: int = REPORT_COST_CREDITS) -> None:
+async def refund_credits(account_id: str, amount: int = REPORT_COST_CREDITS) -> bool:
     """Return credits taken for work that never happened.
 
-    Separate from `add_credits` so the intent is visible at the call site and
-    in a future ledger: a refund is not a purchase.
+    A single atomic UPDATE, for the same reason `deduct_credits` is one: the
+    previous implementation read the row, incremented in Python and wrote it
+    back, so two refunds landing together could both read the same balance and
+    one increment would be lost. Refunds now arrive from two independent
+    daemons (report_listener and report_reaper), which makes that race real
+    rather than theoretical.
+
+    Returns False when there is no such account — an unknown account (or the
+    `legacy-unknown` sentinel on pre-billing rows) is not an error here, and
+    must not turn into a 500 on top of whatever failure triggered the refund.
+
+    Kept separate from `add_credits` although the SQL is nearly identical: at
+    the call site, and in a future ledger, a refund is not a purchase.
     """
-    try:
-        await add_credits(account_id, amount)
-    except ValueError:
-        # The account vanished between deduction and refund. Nothing sensible
-        # to do, and it must not turn into a 500 on top of the original error.
-        pass
+    if amount <= 0:
+        raise ValueError(f"amount must be > 0, got {amount}")
+
+    statement = (
+        update(CreditAccount)
+        .where(CreditAccount.account_id == account_id)
+        .values(balance=CreditAccount.balance + amount)
+    )
+    async with get_sessionmaker()() as session:
+        async with session.begin():
+            result = await session.execute(statement)
+    return result.rowcount == 1
 
 
 async def list_accounts(limit: int = 100) -> list[CreditAccount]:
@@ -133,3 +150,29 @@ async def clear_accounts() -> None:
     async with get_sessionmaker()() as session:
         async with session.begin():
             await session.execute(delete(CreditAccount))
+
+
+async def refund_report(report_id: str, account_id: Optional[str], reason: str) -> bool:
+    """Refund one credit for a failed report, logging the outcome.
+
+    Shared by report_listener and report_reaper so the log line and the
+    sentinel check cannot drift between them. The caller must have already
+    won the pending -> failed transition (see report_store.settle_if_pending),
+    or this will credit an account twice.
+    """
+    from app.services.report_store import LEGACY_ACCOUNT_ID
+
+    if not account_id or account_id == LEGACY_ACCOUNT_ID:
+        # Pre-billing rows: nobody was charged, so there is nothing to return.
+        print(f"[refund] {report_id} not refunded ({reason}): no billable account")
+        return False
+
+    if await refund_credits(account_id, REPORT_COST_CREDITS):
+        print(
+            f"[refund] {report_id} refunded {REPORT_COST_CREDITS} credit to "
+            f"account {account_id} ({reason})"
+        )
+        return True
+
+    print(f"[refund] {report_id} not refunded ({reason}): no account {account_id!r}")
+    return False

@@ -3,6 +3,86 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P2.1.5 — Alembic and refunds on failure (2026-09-22)
+
+### The migration chain starts with a baseline, not with account_id
+
+Two revisions, not one:
+
+    f2c00b0a0a6e  initial schema      (reports, api_keys, credit_accounts)
+    456aca293990  add account_id to reports
+
+The baseline exists so a **fresh** database gets the full schema from
+migrations alone. The live database already had all three tables and no
+`alembic_version`, so it was stamped at the baseline and upgraded from there —
+`alembic stamp f2c00b0a0a6e && alembic upgrade head`. That is the one-time
+adoption step; it is not needed again.
+
+### The generated migration would have failed, and was rewritten
+
+Autogenerate produced a single `add_column(..., nullable=False)`. That fails
+outright on a table with rows, and `reports` had 11. The migration now adds
+the column nullable, backfills, then constrains it:
+
+    add_column(account_id, nullable=True)
+    UPDATE reports SET account_id = 'legacy-unknown' WHERE account_id IS NULL
+    alter_column(account_id, nullable=False) + index
+
+Rows written before billing existed carry the `legacy-unknown` sentinel. They
+are never refunded — nobody was charged for them. The literal is duplicated in
+the migration rather than imported from `report_store.LEGACY_ACCOUNT_ID`,
+because a migration has to keep working when application constants move.
+
+### alembic.ini has no URL; env.py asks the application
+
+`sqlalchemy.url` in alembic.ini is deliberately empty and `alembic/env.py`
+calls `app.database.get_database_url()`. One source of truth, `DATABASE_URL`
+still wins, and the test suite can migrate a throwaway file. `render_as_batch`
+is on because SQLite has no real ALTER COLUMN — batch mode rebuilds the table.
+
+### create_all still runs, and one test guards the gap that creates
+
+`init_models()` still calls `create_all` at startup, so tests and fresh dev
+databases do not need the migration chain. That is convenient and it is a
+trap: a model change then works everywhere except against a database with
+rows in it, which is production.
+
+`test_migrations_match_the_models` migrates a temp database with the Alembic
+CLI and compares the result against `Base.metadata`. A model column with no
+migration passes every other test in the suite and fails that one.
+
+### Refunds are authorised by winning a state transition, not by observing one
+
+`settle_if_pending()` moves a report out of `pending` with a conditional
+UPDATE and returns the owning account only to the caller that actually
+performed the change. Everyone else gets None and must not refund.
+
+This is required, not defensive. Two independent daemons can settle the same
+report: Kafka delivery is at-least-once, so `report_listener` can see the same
+`goal.completed` twice, and a slow report can be reaped moments before its
+event arrives. "Set status, then refund" would credit the account twice in
+both cases — silently minting money.
+
+Observed live during acceptance: the reaper failed and refunded a report, the
+lane came back, the orchestrator completed the queued goal, and the listener
+logged `was already settled; skipping` with the balance unchanged.
+
+### refund_credits became a single atomic UPDATE
+
+It previously called `add_credits`, which read the row, incremented in Python
+and wrote it back — the same lost-update race `deduct_credits` was written to
+avoid. With refunds now arriving from two daemons, that race is real. It is
+still a separate function from `add_credits` despite near-identical SQL: at
+the call site and in a future ledger, a refund is not a purchase.
+
+### What is still not refunded
+
+A report that fails for a reason *other* than the lane timing out or
+escalating — for example a malformed request that somehow reached generation —
+has no path here. There is also still no ledger: balances are current values
+with no history, so "why is my balance 3" cannot be answered. Both matter more
+once Stripe money is involved than they do now.
+
 ## Operational hardening — shutdown, secrets, LLM toggle (2026-09-22)
 
 ### Exit 137 was PID 1 ignoring SIGTERM

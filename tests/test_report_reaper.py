@@ -47,7 +47,15 @@ def _body(report_id: str) -> dict:
     ).model_dump(mode="json")
 
 
-def make_report(status: str, age_seconds: float, with_body: bool = True) -> str:
+TEST_ACCOUNT = "acct-reaper-test"
+
+
+def make_report(
+    status: str,
+    age_seconds: float,
+    with_body: bool = True,
+    account_id: str = TEST_ACCOUNT,
+) -> str:
     """Insert a row with an artificially old created_at."""
     report_id = new_report_id()
     created = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
@@ -59,6 +67,7 @@ def make_report(status: str, age_seconds: float, with_body: bool = True) -> str:
                 session.add(
                     Report(
                         id=report_id,
+                        account_id=account_id,
                         status=status,
                         payload_json=payload,
                         created_at=created,
@@ -155,6 +164,7 @@ def test_boundary_report_exactly_at_the_threshold_is_not_reaped() -> None:
                 session.add(
                     Report(
                         id=report_id,
+                        account_id=TEST_ACCOUNT,
                         status=STATUS_PENDING,
                         payload_json=json.dumps(_body(report_id)),
                         created_at=created,
@@ -226,16 +236,16 @@ def test_one_bad_row_does_not_abort_the_sweep(monkeypatch: pytest.MonkeyPatch) -
     first = make_report(STATUS_PENDING, age_seconds=STALE + 600)
     second = make_report(STATUS_PENDING, age_seconds=STALE + 10)
 
-    real_update = report_reaper.update_report
+    real_settle = report_reaper.settle_if_pending
     calls = {"n": 0}
 
     async def flaky(report_id, status, payload):
         calls["n"] += 1
         if report_id == first:
             raise RuntimeError("row exploded")
-        return await real_update(report_id, status, payload)
+        return await real_settle(report_id, status, payload)
 
-    monkeypatch.setattr(report_reaper, "update_report", flaky)
+    monkeypatch.setattr(report_reaper, "settle_if_pending", flaky)
 
     reaped = run(report_reaper.reap_once())
 

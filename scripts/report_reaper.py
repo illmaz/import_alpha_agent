@@ -26,10 +26,11 @@ from bus import install_signal_handlers, wait_for_shutdown  # noqa: E402
 
 from app.database import init_models  # noqa: E402
 from app.schemas import ReportStatus, ResultStatus  # noqa: E402
+from app.services.billing import refund_report  # noqa: E402
 from app.services.report_store import (  # noqa: E402
     STATUS_FAILED,
     list_stale_pending,
-    update_report,
+    settle_if_pending,
 )
 
 # How often to sweep.
@@ -97,7 +98,10 @@ async def reap_once(now: datetime | None = None) -> list[str]:
         age = (now - created).total_seconds()
 
         try:
-            await update_report(
+            # Conditional on the row still being pending, so a report the
+            # listener settled between the query and now is left alone and
+            # cannot be refunded twice.
+            account_id = await settle_if_pending(
                 row.id, STATUS_FAILED, _failure_payload(row.id, row.payload_json, age)
             )
         except Exception:
@@ -105,8 +109,19 @@ async def reap_once(now: datetime | None = None) -> list[str]:
             logger.exception("could not reap %s", row.id)
             continue
 
+        if account_id is None:
+            logger.info("%s was settled before this sweep reached it", row.id)
+            continue
+
         reaped.append(row.id)
         print(f"[report-reaper] {row.id}: FAILED ({ERROR_CODE}, pending {age:.0f}s)")
+
+        try:
+            await refund_report(row.id, account_id, ERROR_CODE)
+        except Exception:
+            # The report is already failed; a refund failure must not undo
+            # that or stop the rest of the sweep. Loud, because it is money.
+            logger.exception("REFUND FAILED for %s (account %s)", row.id, account_id)
 
     return reaped
 

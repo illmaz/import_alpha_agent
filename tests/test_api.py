@@ -428,7 +428,7 @@ def test_pending_report_returns_409_not_404(client: TestClient) -> None:
     from app.services.report_store import create_report, new_report_id
 
     report_id = new_report_id()
-    asyncio.run(create_report(report_id))
+    asyncio.run(create_report(report_id, ACCOUNT_ID))
 
     response = client.get(f"/v1/reports/{report_id}")
     assert response.status_code == 409
