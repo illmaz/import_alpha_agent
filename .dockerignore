@@ -7,3 +7,6 @@ __pycache__/
 docs/
 *.log.jsonl
 .env
+data/*.db
+data/*.db-wal
+data/*.db-shm

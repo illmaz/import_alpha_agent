@@ -22,7 +22,7 @@ from app.schemas import (
 )
 from app.services.data_loader import load_opportunities
 from app.services.landed_cost import estimate_landed_cost
-from app.services.report_store import report_store
+from app.services import report_store
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
@@ -103,15 +103,21 @@ def estimate_landed_cost_endpoint(payload: LandedCostRequest) -> LandedCostRespo
     status_code=status.HTTP_202_ACCEPTED,
     summary="Request a product viability report",
 )
-def create_report(payload: ReportRequest) -> ReportResponse:
-    """Generate and store a report synchronously, but answer 202.
+async def create_report(payload: ReportRequest) -> ReportResponse:
+    """Generate and persist a report synchronously, but answer 202.
+
+    The row is inserted as `pending` before the body is built, so a crash
+    during generation leaves a visible pending report rather than nothing.
 
     The 202 is forward-looking: generation moves onto the Kafka lane later, and
     callers that already poll GET /v1/reports/{id} will not need to change.
     """
+    report_id = report_store.new_report_id()
+    await report_store.create_report(report_id)
+
     items = load_opportunities()[: payload.max_products]
     report = ReportResponse(
-        report_id=report_store.new_report_id(),
+        report_id=report_id,
         report_status=ReportStatus.READY,
         category=payload.category,
         query=payload.query,
@@ -125,7 +131,10 @@ def create_report(payload: ReportRequest) -> ReportResponse:
         confidence_score=0.25,
         status=ResultStatus.CURATED,
     )
-    return report_store.save(report)
+    await report_store.update_report(
+        report_id, report_store.STATUS_READY, report.model_dump(mode="json")
+    )
+    return report
 
 
 @router.get(
@@ -134,15 +143,22 @@ def create_report(payload: ReportRequest) -> ReportResponse:
     responses={404: {"description": "No report with that id in this process."}},
     summary="Fetch a previously requested report",
 )
-def get_report(report_id: str) -> ReportResponse:
-    """404s on an unknown id — now that reports are stored, it can tell."""
-    report = report_store.get(report_id)
-    if report is None:
+async def get_report(report_id: str) -> ReportResponse:
+    """404s on an unknown id; 409s while a report is still being generated."""
+    row = await report_store.get_report(report_id)
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                f"No report {report_id!r}. Reports are held in memory only and "
-                f"are lost on restart."
-            ),
+            detail=f"No report {report_id!r}.",
+        )
+
+    report = await report_store.get_report_response(report_id)
+    if report is None:
+        # The row exists but has no body yet. That is a different answer from
+        # "no such report", and a caller polling for completion needs to be
+        # able to tell them apart.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Report {report_id!r} is {row.status}; no body available yet.",
         )
     return report

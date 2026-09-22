@@ -58,8 +58,12 @@
 - [x] Add report generation endpoint (in-memory store)
 - [x] GET /v1/reports/{id} 404s on an unknown id
 - [x] Tests: scoring, landed cost, data loader, API (141 total)
-- [ ] Add SQLite state store (tasks, events, artifacts), replacing the
-      in-memory report store
+- [x] Add SQLite persistence for reports (`app/database.py`, `app/models.py`)
+- [x] Async SQLAlchemy + aiosqlite, WAL mode, busy timeout
+- [x] Persist reports across container restarts (`scripts/verify_persistence.sh`)
+- [x] Tests against a temporary SQLite file (159 total)
+- [ ] Extend the state store to tasks, events and artifacts (only reports done)
+- [ ] Add Alembic before the first schema change to a populated table
 - [ ] Replace curated fixture with sourced data (`status="curated"` -> `"ok"`)
 - [ ] Revisit margin saturation — currently flat across all 20 products
 - [ ] Wire POST /v1/reports to the Kafka lane

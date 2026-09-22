@@ -17,6 +17,13 @@ x-app: &app
   env_file:
     - path: .env
       required: false
+  volumes:
+    # Holds the curated fixtures and the SQLite file. Bind-mounted on every
+    # app service (not just fastapi) so a worker that later needs to read or
+    # write reports already has it, and so the database survives
+    # `docker compose down`, which a named volume would also do but a
+    # container-local file would not.
+    - ./data:/app/data
 
 services:
   kafka:

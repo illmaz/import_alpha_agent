@@ -17,19 +17,14 @@ from app.schemas import (
     ReportResponse,
     ResultStatus,
 )
-from app.services.report_store import report_store
 
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
-    return TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def _clean_report_store():
-    report_store.clear()
-    yield
-    report_store.clear()
+    # The context manager runs the lifespan, which creates the schema against
+    # the temporary database configured in conftest.
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 VALID_LANDED_COST = {
@@ -250,3 +245,61 @@ def test_no_endpoint_presents_curated_data_as_observed(client: TestClient) -> No
             assert source["source_url"].startswith("curated://")
             assert source["observed_at"]
             assert source["confidence"] <= 0.5
+
+
+# --- persistence ----------------------------------------------------------
+
+
+def test_report_survives_a_process_restart(client: TestClient) -> None:
+    """End-to-end version of the property P1 Part 3 exists to deliver.
+
+    Disposing the engine and rebuilding it is what restarting the container
+    does to the connection pool. The report must come back over HTTP, which
+    proves it reached the SQLite file and not just a session cache.
+    """
+    import asyncio
+
+    from app.database import init_models, reset_engine
+
+    created = client.post("/v1/reports", json={"max_products": 4}).json()
+    report_id = created["report_id"]
+
+    asyncio.run(reset_engine())
+    asyncio.run(init_models())
+
+    response = client.get(f"/v1/reports/{report_id}")
+    assert response.status_code == 200, "report did not survive the restart"
+
+    fetched = ReportResponse.model_validate(response.json())
+    assert fetched.report_id == report_id
+    assert len(fetched.opportunities) == 4
+
+
+def test_report_row_is_written_to_sqlite(client: TestClient) -> None:
+    """POST must leave a durable row, not just return a body."""
+    import asyncio
+
+    from app.services.report_store import STATUS_READY, get_report
+
+    created = client.post("/v1/reports", json={"max_products": 2}).json()
+
+    row = asyncio.run(get_report(created["report_id"]))
+    assert row is not None
+    assert row.status == STATUS_READY
+    assert row.created_at is not None
+
+
+def test_pending_report_returns_409_not_404(client: TestClient) -> None:
+    """A report being generated is a different answer from one that never existed."""
+    import asyncio
+
+    from app.services.report_store import create_report, new_report_id
+
+    report_id = new_report_id()
+    asyncio.run(create_report(report_id))
+
+    response = client.get(f"/v1/reports/{report_id}")
+    assert response.status_code == 409
+    assert "pending" in response.json()["detail"]
+
+    assert client.get("/v1/reports/R-neverexisted").status_code == 404

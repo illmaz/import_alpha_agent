@@ -1,5 +1,10 @@
 confluent-kafka>=2.6.0
 pydantic>=2.9.0
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+# SQLAlchemy's async bridge needs greenlet and does not always pull it in
+# (notably on arm64 macOS), where it fails at first connect, not at import.
+greenlet>=3.0.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pytest>=8.3.0

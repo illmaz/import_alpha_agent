@@ -3,6 +3,84 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P1 Part 3 — SQLite persistence (2026-09-22)
+
+### create_all is a deliberate short-term choice with a hard expiry
+
+No Alembic yet: the lifespan handler calls `Base.metadata.create_all`, which
+creates missing tables and **does nothing to an existing one**. Adding a
+column to `reports` later will therefore appear to work, leave the table
+unchanged, and fail at runtime on the first query for that column.
+
+That is acceptable while the schema is one table and nothing is deployed. It
+stops being acceptable at the first schema change against a file holding rows
+anyone cares about. Bring in Alembic before that change, not after it.
+
+### The report body is JSON text, not normalised columns
+
+`reports.payload_json` holds a serialised `ReportResponse`. The report is a
+document: written once, read whole, never queried by its inner fields. The
+indexed columns are only what we filter or sort on — `status`, `created_at`.
+
+Normalising the opportunities into rows would buy no query we need and would
+demand a migration every time the response schema moved. If reports later need
+to be searched by product or score, that is the point to revisit it.
+
+### The row is created before the body exists
+
+`POST /v1/reports` inserts a `pending` row, then generates, then updates to
+`ready`. Generation is synchronous today, so the window is tiny — but the
+ordering is what makes a crash mid-generation visible as a stuck `pending`
+report instead of leaving no trace at all. It is also the shape the Kafka lane
+needs when generation moves off the request path.
+
+This is why `GET /v1/reports/{id}` answers **409** for a row with no body yet,
+distinct from **404** for an id that never existed. A caller polling for
+completion has to be able to tell "not ready" from "wrong id"; collapsing both
+into 404 would make a poller give up on a report that was about to arrive.
+
+### update_report raises instead of no-opping on a missing row
+
+Updating an id that is not there is a bug in the caller, and a silent no-op
+would strand the report as `pending` forever with nothing to indicate why.
+
+### WAL mode and a busy timeout
+
+`PRAGMA journal_mode=WAL` lets readers proceed while a writer holds the lock,
+and a 5s busy timeout makes a competing writer wait rather than fail
+immediately with "database is locked". SQLite still serialises writers; this
+turns light write contention into slightly slower requests instead of 500s.
+It does not make SQLite a concurrent-write database, and that limit is the
+first thing to outgrow when write traffic is real.
+
+### Tests use a temporary SQLite file, never :memory:
+
+`tests/conftest.py` redirects `DATABASE_URL` at a temp **file** for the whole
+session. An in-memory SQLite database is scoped to one connection, so the
+persistence tests would pass without proving anything. A guard test
+(`test_tests_never_touch_the_real_database`) asserts the redirection is in
+effect, because a regression there would silently let the suite write to the
+real `data/reports.db`.
+
+### greenlet is an explicit dependency
+
+SQLAlchemy's async bridge requires greenlet and does not reliably pull it in
+on arm64 macOS. The failure is at first connect, not at import, so it surfaces
+as a confusing runtime `ValueError` rather than a missing-module error at
+startup. Pinned in requirements.txt rather than left to chance.
+
+### ./data is bind-mounted on every app service
+
+Not just `fastapi`. The workers do not read reports today, but the fixtures
+live in the same directory and a worker that later writes artifacts to the
+database already has the mount. The bind mount also means the database
+survives `docker compose down`, which was verified rather than assumed.
+
+One consequence worth knowing: the mount shadows `/app/data` from the image,
+so the container reads the **host's** fixtures, not the copy baked into the
+image. Editing `data/fixtures/*.json` takes effect without a rebuild — handy
+in development, and a difference from how the rest of the code is delivered.
+
 ## P1 Part 2 — Scoring, fixtures and landed cost (2026-09-22)
 
 ### Curated data gets its own status, and non-web source URIs

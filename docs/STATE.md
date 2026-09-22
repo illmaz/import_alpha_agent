@@ -2,8 +2,8 @@
 
 ## Phase
 
-P1 in progress — scoring engine, curated fixtures and landed-cost estimator are
-live behind the API. No database yet; reports are in-memory.
+P1 in progress — scoring, curated fixtures, landed cost and SQLite-persisted
+reports are live behind the API. Data is still curated, not sourced.
 
 ## Completed
 
@@ -140,24 +140,64 @@ live behind the API. No database yet; reports are in-memory.
   `/v1/reports` returns 202 + fetchable report; unknown id returns 404.
 
 
+**P1 Part 3 (SQLite persistence for reports) — FINISHED 2026-09-22.**
+
+- Added `app/database.py`: async SQLAlchemy engine over aiosqlite,
+  `DATABASE_URL` (default `sqlite+aiosqlite:///./data/reports.db`),
+  `AsyncSessionLocal`, `Base`, `init_models()`, `reset_engine()`. The engine is
+  built lazily so tests can redirect the URL without controlling import order.
+- Added `app/models.py`: `Report` (id PK, status, payload_json, created_at,
+  updated_at) with `ix_reports_status`. The body is stored as JSON text — the
+  report is a document, written once and read whole, never queried by its
+  inner fields.
+- Rewrote `app/services/report_store.py` on SQLite: `create_report()`,
+  `update_report()`, `get_report()` plus `get_report_response()`,
+  `list_reports()`, `count_reports()`, `clear_reports()`. WAL journal mode and
+  a 5s busy timeout so a concurrent writer waits rather than erroring.
+- `POST /v1/reports` and `GET /v1/reports/{id}` are now `async def`. POST
+  inserts a `pending` row *before* generating, so a crash mid-generation leaves
+  a visible pending report rather than nothing.
+- `GET /v1/reports/{id}` now distinguishes three cases: 200 ready,
+  **409 pending** (row exists, body not written yet), 404 unknown.
+- Added `greenlet>=3.0.0` to requirements — SQLAlchemy's async bridge needs it
+  and does not always pull it in on arm64 macOS, where it fails at first
+  connect rather than at import.
+- `app/main.py` now uses a lifespan handler calling `init_models()`;
+  `data/` is created automatically if missing.
+- docker-compose.yml: `./data:/app/data` bind mount on **every** app service
+  (via the shared anchor), so a worker that later needs report access already
+  has it. `data/*.db*` added to .gitignore and .dockerignore.
+- Added `scripts/verify_persistence.sh` — the acceptance check the in-memory
+  store would have failed while passing every unit test.
+- **159 tests pass** (was 141): +15 report store, +3 API persistence, and
+  tests/conftest.py redirects every test at a throwaway SQLite *file* (not
+  `:memory:`, which is per-connection and would make persistence tests pass
+  for the wrong reason). Verified on host and in-container.
+- **Verified live**: report survived `docker compose restart fastapi`, and
+  survived a full `docker compose down` + `up`. DB confirmed in WAL mode with
+  `ix_reports_status` present.
+
+
 ## In Progress
 
-- P1 product core. Parts 1-2 are done and awaiting review. The data layer
-  (SQLite) is still not started. P1 Part 2 files are written but
-  **not yet committed**.
+- P1 product core. Parts 1-3 are done and awaiting review. P1 Part 3 files
+  are written but **not yet committed**.
 
 ## Next Actions
 
-1. P1 Part 3: SQLite state store, replacing the in-memory report store so
-   report_ids survive restarts and multiple replicas
-2. Replace the curated fixture with sourced data — this is the only change
-   needed to move responses from `status="curated"` to `status="ok"`
-3. Revisit margin weighting: with the current fixture every product clears the
-   60% saturation cap, so the margin term contributes a flat 35 to all 20
-   scores and does no ranking work (see DECISIONS.md)
+1. Replace the curated fixture with sourced data — still the single change
+   that moves responses from `status="curated"` to `status="ok"`
+2. Alembic, before the first schema change to a table holding real rows.
+   `create_all` adds missing tables and will not alter an existing one, so a
+   changed column will silently do nothing (see DECISIONS.md)
+3. Persist the agent lane's tasks/events/artifacts to the same database — the
+   backlog item named the full state store and only reports are done
 4. Wire `POST /v1/reports` to the Kafka lane so generation is genuinely async
-5. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
-6. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
+   (the 202 and the pending row are already shaped for it)
+5. Revisit margin weighting: every product clears the 60% saturation cap, so
+   the margin term does no ranking work (see DECISIONS.md)
+6. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
+7. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
 
 ## Blocked
 
