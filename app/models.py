@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -138,6 +138,18 @@ class CreditTransaction(Base):
     __table_args__ = (
         Index("ix_credit_transactions_account_id", "account_id"),
         Index("ix_credit_transactions_created_at", "created_at"),
+        # One purchase per payment event, enforced by the database. A
+        # check-then-insert is not enough: SQLite takes its write lock at the
+        # first write, so concurrent webhook retries both pass the check.
+        # Partial because only purchases carry a unique reference — a topup
+        # note may legitimately repeat.
+        Index(
+            "uq_credit_transactions_purchase_reference",
+            "reference",
+            unique=True,
+            sqlite_where=text("reason = 'purchase' AND reference IS NOT NULL"),
+            postgresql_where=text("reason = 'purchase' AND reference IS NOT NULL"),
+        ),
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

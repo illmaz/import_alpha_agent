@@ -263,3 +263,40 @@ class AccountTransactionsResponse(BaseModel):
     balance: int = Field(description="Current balance, cached from the ledger.")
     count: int = Field(description="Total entries, before pagination.")
     items: List[CreditTransactionOut] = Field(default_factory=list)
+
+
+class CheckoutRequest(BaseModel):
+    """Start a Stripe Checkout Session for a credit pack."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pack_id: str = Field(description="A key of stripe_service.PRICE_TABLE.")
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
+
+
+class CheckoutResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    checkout_url: str
+    session_id: str
+    pack_id: str
+    credits: int
+    amount_cents: int
+    currency: str
+
+
+class CreditPack(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pack_id: str
+    name: str
+    credits: int
+    amount_cents: int
+    currency: str
+
+
+class CreditPacksResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: List[CreditPack] = Field(default_factory=list)

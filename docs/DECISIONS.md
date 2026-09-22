@@ -3,6 +3,85 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P2.3 — Stripe Checkout, test mode (2026-09-22)
+
+### The signature is the credential; metadata is never an amount
+
+`POST /v1/webhooks/stripe` is the only unauthenticated route in the API, and
+it grants credits. Stripe cannot send an API key, so the HMAC signature on the
+payload is the entire trust boundary. Nothing in the body is read until
+`stripe.Webhook.construct_event` has verified it — an unverified payload is
+forged until proven otherwise, and is discarded before any field is touched.
+
+It lives on its own router in `app/api/v1/webhooks.py` rather than on the v1
+router, which authenticates everything by default. An unauthenticated route
+has to be a visible, deliberate choice, not an exemption buried in a decorator.
+
+After verification, metadata is still only *identifiers*: `account_id` (who to
+credit) and `pack_id` (which pack). **The credit count is never read from the
+payload.** It is re-derived from `PRICE_TABLE[pack_id]` server-side, so a
+session created with tampered or stale metadata cannot mint credits.
+
+There is a second check on top: the amount Stripe actually charged is compared
+against the pack's price, and a mismatch is refused. The pack lookup fixes how
+many credits a pack is worth; this fixes what that pack costs. Without it, a
+session whose price was altered after creation would still grant a full pack.
+`test_amount_mismatch_is_rejected` charges 1 cent for the $99 pack and asserts
+nothing is credited.
+
+### Idempotency needed a database constraint, not a check
+
+The plan was "if a ledger row with this event id exists, do not credit". That
+was implemented, tested — and then tested *concurrently*, where it failed:
+six simultaneous deliveries of one event all passed the check and credited
+four to six times.
+
+The reason is SQLite's locking. A write lock is taken at the first *write*, so
+several connections can each run the SELECT, each see nothing, and each then
+insert. Check-then-insert inside a transaction is not atomic against a
+concurrent writer.
+
+The fix is a partial unique index on `credit_transactions.reference` where
+`reason = 'purchase'`, added in migration `e8cad44c3fec`. `record_purchase`
+catches the resulting `IntegrityError` and reports "already recorded", which
+is the same outcome as the in-transaction check firing — that check is kept as
+the fast path. The index is partial because only purchases carry a globally
+unique reference; a topup's reference is a free-text note and may repeat.
+
+Stripe retries a webhook until it gets a 2xx, and a retry after a slow but
+successful first delivery is ordinary traffic. Double-crediting here is
+double-paying a customer.
+
+### 200 for events we ignore, 400 for events we cannot act on
+
+An event type we do not handle returns 200 with `handled: false`. A 4xx would
+make Stripe retry, with backoff, an event we will never act on.
+
+A *verified* event we cannot act on — unknown pack, missing metadata, price
+mismatch — returns 400, so it surfaces in the Stripe dashboard rather than
+being silently dropped. That distinction matters: the first is noise, the
+second is a bug or an attack and should be visible.
+
+### A live key is refused at the call site
+
+`assert_test_mode()` raises on any key starting `sk_live_`. This codebase has
+no business charging a real customer, and "we were careful" is not a control.
+It fails where the key is used, not in review.
+
+### The $999 custom feed is not a pack
+
+`PRICE_TABLE` holds `report_pack` ($99 / 10 credits) and `api_credits`
+($299 / 100 credits). The custom category feed from CONTEXT.md is deliberately
+absent: it is a bespoke engagement priced per customer, and making it
+self-serve would sell something we have not agreed to deliver. It is granted
+with `billing.adjust_balance()` after the scope is settled, and a test asserts
+no pack costs 99900.
+
+**Known mismatch with CONTEXT.md:** it describes api_credits as "$299/month".
+This is implemented as a one-time 100-credit purchase, because P2.3 is
+one-time payments only. Recurring billing is a separate piece of work, and
+the pricing page should not promise a subscription until it exists.
+
 ## P2.2 — Append-only ledger and universal refund (2026-09-22)
 
 ### The ledger landed before Stripe, deliberately

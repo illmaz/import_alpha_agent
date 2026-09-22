@@ -29,6 +29,7 @@ import uuid
 from typing import List, Optional, Tuple
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_sessionmaker
 from app.models import CreditAccount, CreditTransaction, TransactionReason
@@ -52,6 +53,7 @@ async def _apply(
     reference: Optional[str] = None,
     *,
     require_funds: bool = False,
+    once_per_reference: bool = False,
 ) -> Optional[CreditTransaction]:
     """Move a balance and record why, atomically. The only writer of balance.
 
@@ -61,6 +63,10 @@ async def _apply(
             cover it, using a conditional UPDATE so the check and the write are
             one statement. Two concurrent spenders cannot both take the last
             credit.
+        once_per_reference: when True, do nothing if a row with this reason and
+            reference already exists. The check runs inside the same
+            transaction as the write, so a retried webhook delivered twice
+            concurrently still credits once.
 
     Returns:
         The ledger row that was written, or None when nothing was applied —
@@ -78,6 +84,18 @@ async def _apply(
 
     async with get_sessionmaker()() as session:
         async with session.begin():
+            if once_per_reference:
+                if reference is None:
+                    raise ValueError("once_per_reference requires a reference")
+                existing = await session.execute(
+                    select(CreditTransaction.id).where(
+                        CreditTransaction.reason == reason.value,
+                        CreditTransaction.reference == reference,
+                    )
+                )
+                if existing.scalar_one_or_none() is not None:
+                    return None
+
             result = await session.execute(statement)
             if result.rowcount != 1:
                 return None
@@ -215,10 +233,45 @@ async def refund_credits(
 async def record_purchase(
     account_id: str, amount: int, reference: str
 ) -> Optional[CreditTransaction]:
-    """Credits bought with money. Unused until Stripe lands (P2.3)."""
+    """Credits bought with money, recorded at most once per `reference`.
+
+    `reference` is the Stripe event id. Stripe retries a webhook until it gets
+    a 2xx, and a retry after a slow-but-successful first delivery is normal
+    traffic, not an edge case — so the same event must never credit twice.
+
+    Returns None when this reference was already recorded, which the caller
+    should treat as success: the credits are already there.
+    """
     if amount <= 0:
         raise ValueError(f"amount must be > 0, got {amount}")
-    return await _apply(account_id, amount, TransactionReason.PURCHASE, reference)
+    if not reference:
+        raise ValueError("a purchase requires a reference (the payment event id)")
+    try:
+        return await _apply(
+            account_id,
+            amount,
+            TransactionReason.PURCHASE,
+            reference,
+            once_per_reference=True,
+        )
+    except IntegrityError:
+        # The in-transaction check lost a race with a concurrent delivery of
+        # the same event; the unique index caught it. The whole transaction
+        # rolled back, so the balance is untouched and the other delivery's
+        # credit stands. Same outcome as the check firing.
+        return None
+
+
+async def find_transaction(
+    reason: TransactionReason, reference: str
+) -> Optional[CreditTransaction]:
+    """The ledger row for this reason+reference, if one exists."""
+    statement = select(CreditTransaction).where(
+        CreditTransaction.reason == reason.value,
+        CreditTransaction.reference == reference,
+    )
+    async with get_sessionmaker()() as session:
+        return (await session.execute(statement)).scalar_one_or_none()
 
 
 async def adjust_balance(

@@ -11,11 +11,17 @@ from __future__ import annotations
 
 from typing import Optional
 
+import stripe
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas import (
     AccountTransactionsResponse,
+    CheckoutRequest,
+    CheckoutResponse,
+    CreditPack,
+    CreditPacksResponse,
     CreditTransactionOut,
     LandedCostRequest,
     LandedCostResponse,
@@ -28,7 +34,7 @@ from app.schemas import (
 )
 from app.services.data_loader import load_opportunities
 from app.services.landed_cost import estimate_landed_cost
-from app.services import billing, kafka_publisher, report_store
+from app.services import billing, kafka_publisher, report_store, stripe_service
 from app.services.auth import verify_api_key
 
 # auto_error=False so a missing header reaches our handler and gets the same
@@ -306,4 +312,91 @@ async def list_own_transactions(
             )
             for row in rows
         ],
+    )
+
+
+# --------------------------------------------------------------------------
+# Billing: credit packs and Stripe Checkout
+# --------------------------------------------------------------------------
+
+
+@router.get(
+    "/billing/packs",
+    response_model=CreditPacksResponse,
+    summary="Credit packs available for purchase",
+)
+async def list_packs() -> CreditPacksResponse:
+    """The catalogue, served from PRICE_TABLE so it cannot drift from checkout."""
+    return CreditPacksResponse(
+        items=[
+            CreditPack(
+                pack_id=pack_id,
+                name=pack["name"],
+                credits=pack["credits"],
+                amount_cents=pack["amount_cents"],
+                currency=pack["currency"],
+            )
+            for pack_id, pack in stripe_service.PRICE_TABLE.items()
+        ]
+    )
+
+
+@router.post(
+    "/billing/checkout",
+    response_model=CheckoutResponse,
+    summary="Start a Stripe Checkout Session for a credit pack",
+    responses={
+        400: {"description": "Unknown pack_id."},
+        503: {"description": "Stripe is not configured on this deployment."},
+    },
+)
+async def create_checkout(
+    payload: CheckoutRequest,
+    account_id: str = Depends(get_current_account),
+) -> CheckoutResponse:
+    """Create a one-time Checkout Session for the caller's own account.
+
+    The account comes from the API key, never from the request body, so a
+    caller cannot start a session that credits someone else.
+    """
+    try:
+        pack = stripe_service.get_pack(payload.pack_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown pack_id {payload.pack_id!r}. Available: "
+                f"{sorted(stripe_service.PRICE_TABLE)}."
+            ),
+        ) from None
+
+    try:
+        session = stripe_service.create_checkout_session(
+            account_id=account_id,
+            pack_id=payload.pack_id,
+            success_url=payload.success_url or "https://example.com/billing/success",
+            cancel_url=payload.cancel_url or "https://example.com/billing/cancel",
+        )
+    except stripe_service.StripeNotConfigured as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except stripe_service.LiveKeyRefused as exc:
+        # Deliberately loud: this project must never touch real money.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except stripe.error.StripeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Stripe rejected the checkout request: {exc}",
+        ) from exc
+
+    return CheckoutResponse(
+        checkout_url=session.url,
+        session_id=session.id,
+        pack_id=payload.pack_id,
+        credits=pack["credits"],
+        amount_cents=pack["amount_cents"],
+        currency=pack["currency"],
     )

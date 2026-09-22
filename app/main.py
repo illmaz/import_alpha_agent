@@ -13,6 +13,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from app.api.v1.endpoints import router as v1_router
+from app.api.v1.webhooks import router as webhooks_router
 from app.database import init_models
 from app.schemas import HealthResponse
 
@@ -49,3 +50,5 @@ def health() -> HealthResponse:
 
 
 app.include_router(v1_router)
+# Separate router: signature-verified, not API-key authenticated.
+app.include_router(webhooks_router)

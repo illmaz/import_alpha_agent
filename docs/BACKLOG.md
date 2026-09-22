@@ -101,11 +101,17 @@
 - [ ] Enforce append-only in the database (needs Postgres grants; SQLite
       cannot, so it is currently a service-layer discipline)
 
-### P2.3 — Stripe (next)
+### P2.3 — Stripe, test mode (code complete)
 
-- [ ] Add Stripe Checkout for credit purchases
-- [ ] Webhook -> `record_purchase()` (already wired into the ledger, unused)
-- [ ] Reconcile Stripe events against ledger purchase rows
+- [x] PRICE_TABLE (report_pack $99/10, api_credits $299/100)
+- [x] POST /v1/billing/checkout + GET /v1/billing/packs
+- [x] POST /v1/webhooks/stripe, signature-verified, unauthenticated
+- [x] Credits re-derived server-side; amount checked against the pack price
+- [x] Idempotency via a partial unique index on purchase references
+- [x] Live `sk_live_` keys refused at the call site
+- [ ] **Run the test-mode acceptance** (needs sk_test_ + whsec_ keys)
+- [ ] Recurring billing — CONTEXT.md calls api_credits "$299/month"; it is
+      currently a one-time pack
 
 ### P2.4 — Metering and agent payments
 

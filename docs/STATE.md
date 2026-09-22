@@ -393,25 +393,88 @@ that reads its own source, not by the database. SQLite cannot revoke
 UPDATE/DELETE here; Postgres can, and should.
 
 
+**P2.3 (Stripe Checkout, test mode) — CODE COMPLETE 2026-09-22, live run pending.**
+
+- Added `stripe>=11.0.0`; `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` in
+  .env.example. **A live `sk_live_` key is refused at the call site**, not
+  merely discouraged.
+- Added `app/services/stripe_service.py` with `PRICE_TABLE`:
+  `report_pack` $99 -> 10 credits, `api_credits` $299 -> 100 credits. The $999
+  custom feed is deliberately not a pack — it is granted with
+  `adjust_balance()` after scope is agreed.
+- Added `POST /v1/billing/checkout` (authenticated; account comes from the
+  key, never the body) and `GET /v1/billing/packs`.
+- Added `POST /v1/webhooks/stripe` on its own **unauthenticated** router —
+  Stripe cannot send an API key, so the signature is the credential. Nothing
+  in the payload is read before `construct_event` verifies it.
+- **Credits are never read from the payload.** Metadata carries only
+  `account_id` and `pack_id`; the credit count is re-derived from PRICE_TABLE,
+  and the charged amount is checked against the pack price.
+- **Idempotency needed a database constraint.** A check-then-insert failed
+  under concurrent delivery — six simultaneous retries of one event credited
+  six times, because SQLite takes its write lock at the first write. Migration
+  `e8cad44c3fec` adds a partial unique index on purchase references; the
+  in-transaction check stays as the fast path.
+- Added tests/test_stripe.py (25) plus 5 ledger idempotency cases.
+  **371 tests pass**, host and in-container.
+- Live database migrated to `e8cad44c3fec`.
+
+### Stripe local dev flow
+
+Test mode only. Put `sk_test_...` in `.env`, then in a second terminal:
+
+    stripe listen --forward-to localhost:8000/v1/webhooks/stripe
+
+That prints a `whsec_...` signing secret — put **that** one in `.env` as
+`STRIPE_WEBHOOK_SECRET` (the dashboard endpoint has a different secret), then
+recreate the API so it picks both up:
+
+    docker compose up -d --force-recreate fastapi
+
+Then:
+
+    curl -X POST http://localhost:8000/v1/billing/checkout \
+      -H "Authorization: Bearer <your key>" \
+      -H 'Content-Type: application/json' \
+      -d '{"pack_id":"report_pack"}'
+
+Open the returned `checkout_url`, pay with test card `4242 4242 4242 4242`
+(any future expiry, any CVC). The webhook fires; check the ledger:
+
+    docker compose run --rm cli python scripts/manage_accounts.py history <account_id>
+    docker compose run --rm cli python scripts/manage_accounts.py reconcile
+
+Replay the same event to prove idempotency:
+
+    stripe events resend <evt_id>
+
+The balance must not move, and `history` must show one purchase row.
+
+**Not yet run:** the live test-mode transaction needs Stripe test keys, which
+are not in this checkout. Everything is exercised by automated tests against a
+stubbed Stripe; the end-to-end payment has not been performed.
+
+
 ## In Progress
 
-- P2 monetization. P2.1, operational hardening, P2.1.5 and P2.2 (ledger)
-  are done and awaiting review. Stripe (now P2.3), metering and x402 are not
-  started.
+- P2 monetization. P2.1 through P2.3 are code complete and awaiting review.
+  **P2.3 needs a live test-mode payment run** — see the Stripe local dev flow
+  above. Metering and x402 (P2.4) are not started.
 - LLM provider is **fake** — no spend. `./scripts/toggle_llm.sh real` to switch.
 
 ## Next Actions
 
-1. **P2.3: Stripe Checkout** for credit purchases. The ledger is ready for it —
-   `record_purchase()` and `TransactionReason.PURCHASE` exist and are unused
+1. **Run the Stripe test-mode acceptance** — needs `sk_test_` + `whsec_` keys.
+   Checkout, pay with 4242..., confirm the ledger row and reconcile, then
+   resend the event and confirm the balance does not move
 2. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`
 3. Move the database off the bind mount (named volume, then Postgres). Postgres
    also lets append-only be enforced by grants rather than by discipline
-4. Persist the agent lane's tasks/events/artifacts — only reports are stored
-5. Revisit margin weighting: every product clears the 60% saturation cap, so
+4. P2.4: usage metering, then x402 sandbox
+5. Persist the agent lane's tasks/events/artifacts — only reports are stored
+6. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
-6. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
 
 ## Blocked
 

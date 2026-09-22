@@ -273,3 +273,61 @@ def test_non_positive_amounts_rejected(account: str, amount: int) -> None:
 def test_zero_delta_rejected(account: str) -> None:
     with pytest.raises(ValueError):
         run(adjust_balance(account, 0, reference="nothing"))
+
+
+# --- purchase idempotency (the Stripe retry case) ------------------------
+
+
+def test_purchase_requires_a_reference(account: str) -> None:
+    from app.services.billing import record_purchase
+
+    with pytest.raises(ValueError, match="reference"):
+        run(record_purchase(account, 10, ""))
+
+
+def test_same_reference_records_once(account: str) -> None:
+    from app.services.billing import record_purchase
+
+    assert run(record_purchase(account, 10, "evt_x")) is not None
+    assert run(record_purchase(account, 10, "evt_x")) is None
+    assert run(get_balance(account)) == 20  # 10 opening + 10 purchase
+
+
+def test_concurrent_deliveries_of_one_event_credit_once(account: str) -> None:
+    """A DB constraint, not a check.
+
+    SQLite takes its write lock at the first write, so a check-then-insert in
+    a transaction is not enough — verified: six concurrent deliveries all
+    passed the check and credited. The partial unique index makes it
+    impossible rather than unlikely.
+    """
+    from app.services.billing import record_purchase
+
+    async def deliver_six() -> list:
+        return list(await asyncio.gather(
+            *[record_purchase(account, 10, "evt_race") for _ in range(6)]
+        ))
+
+    results = run(deliver_six())
+
+    assert sum(r is not None for r in results) == 1
+    assert run(get_balance(account)) == 20
+    assert run(reconcile(account)) is True
+
+
+def test_a_rejected_duplicate_leaves_the_balance_untouched(account: str) -> None:
+    from app.services.billing import record_purchase
+
+    run(record_purchase(account, 10, "evt_y"))
+    before = run(get_balance(account))
+
+    run(record_purchase(account, 999, "evt_y"))
+
+    assert run(get_balance(account)) == before
+
+
+def test_topup_references_may_repeat(account: str) -> None:
+    """Only purchases carry a unique reference; a note is free text."""
+    run(add_credits(account, 5, reference="manual"))
+    run(add_credits(account, 5, reference="manual"))
+    assert run(get_balance(account)) == 20

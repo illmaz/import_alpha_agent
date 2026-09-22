@@ -8,6 +8,10 @@ greenlet>=3.0.0
 # Schema migrations. create_all only ever ADDS tables; it silently ignores
 # a changed column on an existing one, which is why this is now required.
 alembic>=1.13.0
+# Stripe Checkout (test mode). Pure-Python; imports without a key, and every
+# call site fails loudly when STRIPE_SECRET_KEY is unset rather than silently
+# falling back to something.
+stripe>=11.0.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pytest>=8.3.0
