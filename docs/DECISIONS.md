@@ -3,6 +3,81 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P1 Part 2 — Scoring, fixtures and landed cost (2026-09-22)
+
+### Curated data gets its own status, and non-web source URIs
+
+`ResultStatus.CURATED` sits alongside `OK` and `STUB`. It is not a weaker
+`OK` — it means the number was hand-written for development and never observed
+anywhere.
+
+The fixture's `source_urls` are `curated://importalpha/home-organization/v1#<slug>`,
+deliberately not http(s). A plausible marketplace link would have satisfied the
+letter of the AGENTS.md sourcing rule while breaking its purpose: a fabricated
+URL is worse than a fabricated number, because a reader can check a number
+against intuition but will take a URL as verifiable. Two tests enforce this
+directly — `test_no_record_claims_a_real_web_source` and
+`test_no_endpoint_presents_curated_data_as_observed` — so the rule cannot erode
+quietly when real sources start arriving alongside curated ones.
+
+Confidence is a uniform 0.25 across all 20 records. Varying it per product
+would encode differential evidence that does not exist.
+
+### Retail price is curated; margin is derived
+
+Margin needs a price to measure against, and the fixture had none. The options
+were to hardcode a margin per product (inventing the output directly) or to
+curate a retail anchor and derive margin from it. The second is honest about
+where the guess lives, and it means a change to freight or duty rates moves
+every score — which is exactly what should happen once those rates are real.
+
+### Margin currently does no ranking work
+
+With this fixture every product lands above the 60% `MARGIN_SATURATION_PCT`,
+so the margin component is 100 for all 20 and contributes a flat 35 points.
+Ranking is therefore driven entirely by trend, competition and risk.
+
+This is a property of the curated retail prices, not a bug in the formula, and
+it will resolve on its own once real prices and fulfilment fees pull margins
+down into the discriminating band. Worth knowing before anyone concludes the
+margin weight is miscalibrated. If it persists with real data, lower
+`MARGIN_SATURATION_PCT` rather than changing the weights.
+
+### Out-of-range scoring inputs raise; a negative margin does not
+
+`calculate_opportunity_score` raises `ValueError` on a trend, competition or
+confidence value outside its range, or an unknown risk level. Those are caller
+contract violations, and clamping them silently would hide a data-pipeline bug
+behind a plausible score.
+
+A negative margin is different — a loss-making product is a legitimate input,
+not a bug — so it floors at zero and scores accordingly.
+
+### The report store is in-memory, with two consequences
+
+`report_store` is a process-local dict behind a lock. Reports are lost on
+restart, and with more than one API replica the replica serving `GET` may not
+be the one that served `POST`, which then 404s. Run one replica until the
+SQLite store lands. Recorded here because both failure modes are invisible in
+a single-replica dev environment and obvious only in production.
+
+`POST /v1/reports` still answers 202 although generation is synchronous today.
+The 202 is forward-looking: generation moves onto the Kafka lane later, and
+callers already polling `GET /v1/reports/{id}` will not have to change.
+
+### `docker compose up --build` does not rebuild profile-gated services
+
+The `pytest` and `cli` services sit behind profiles, so `up --build` skips
+them and `docker compose run --rm pytest` silently runs a stale image. This
+was caught live: the container reported 65 passing tests against code that had
+141. Rebuild them explicitly:
+
+    docker compose build pytest cli
+
+Anything that only ever runs through `docker compose run` needs this, and a
+stale test image is the worst case of it — it reports success for code that is
+not there.
+
 ## Phase 3 — Dockerized run lane (2026-09-22)
 
 ### PR #1 was discarded, not merged

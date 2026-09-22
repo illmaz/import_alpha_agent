@@ -1,0 +1,435 @@
+[
+  {
+    "product_id": "HO-bamboo-drawer-organizer",
+    "product_title": "bamboo drawer organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 72,
+    "competition_score": 45,
+    "estimated_unit_cost_usd_low": 2.1,
+    "estimated_unit_cost_usd_high": 3.5,
+    "unit_weight_kg": 0.35,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#bamboo-drawer-organizer"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 12.99
+  },
+  {
+    "product_id": "HO-stackable-shelf-bin",
+    "product_title": "stackable shelf bin",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 64,
+    "competition_score": 58,
+    "estimated_unit_cost_usd_low": 1.2,
+    "estimated_unit_cost_usd_high": 2.4,
+    "unit_weight_kg": 0.22,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#stackable-shelf-bin"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 8.99
+  },
+  {
+    "product_id": "HO-cable-management-box",
+    "product_title": "cable management box",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 78,
+    "competition_score": 52,
+    "estimated_unit_cost_usd_low": 2.8,
+    "estimated_unit_cost_usd_high": 4.6,
+    "unit_weight_kg": 0.45,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#cable-management-box"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 15.99
+  },
+  {
+    "product_id": "HO-desk-organizer-drawers",
+    "product_title": "desk organizer with drawers",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 69,
+    "competition_score": 63,
+    "estimated_unit_cost_usd_low": 3.4,
+    "estimated_unit_cost_usd_high": 5.9,
+    "unit_weight_kg": 0.72,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#desk-organizer-drawers"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 22.99
+  },
+  {
+    "product_id": "HO-under-sink-expandable",
+    "product_title": "under-sink expandable organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 81,
+    "competition_score": 41,
+    "estimated_unit_cost_usd_low": 4.1,
+    "estimated_unit_cost_usd_high": 6.8,
+    "unit_weight_kg": 0.95,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#under-sink-expandable"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 24.99
+  },
+  {
+    "product_id": "HO-acrylic-makeup-organizer",
+    "product_title": "clear acrylic makeup organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 74,
+    "competition_score": 71,
+    "estimated_unit_cost_usd_low": 2.6,
+    "estimated_unit_cost_usd_high": 4.3,
+    "unit_weight_kg": 0.48,
+    "risk_level": "medium",
+    "risk_flags": [
+      "fragile"
+    ],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#acrylic-makeup-organizer"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 16.99
+  },
+  {
+    "product_id": "HO-hanging-closet-shelf",
+    "product_title": "hanging closet shelf organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 58,
+    "competition_score": 49,
+    "estimated_unit_cost_usd_low": 2.9,
+    "estimated_unit_cost_usd_high": 4.7,
+    "unit_weight_kg": 0.55,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#hanging-closet-shelf"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 14.99
+  },
+  {
+    "product_id": "HO-spice-rack-drawer-insert",
+    "product_title": "spice rack drawer insert",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 66,
+    "competition_score": 38,
+    "estimated_unit_cost_usd_low": 2.2,
+    "estimated_unit_cost_usd_high": 3.8,
+    "unit_weight_kg": 0.4,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#spice-rack-drawer-insert"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 13.99
+  },
+  {
+    "product_id": "HO-felt-drawer-divider-set",
+    "product_title": "felt drawer divider set",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 53,
+    "competition_score": 44,
+    "estimated_unit_cost_usd_low": 1.6,
+    "estimated_unit_cost_usd_high": 2.9,
+    "unit_weight_kg": 0.18,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#felt-drawer-divider-set"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 9.99
+  },
+  {
+    "product_id": "HO-over-door-pantry-organizer",
+    "product_title": "over-door pantry organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 70,
+    "competition_score": 47,
+    "estimated_unit_cost_usd_low": 3.9,
+    "estimated_unit_cost_usd_high": 6.2,
+    "unit_weight_kg": 1.1,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#over-door-pantry-organizer"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 21.99
+  },
+  {
+    "product_id": "HO-rolling-storage-cart-3tier",
+    "product_title": "rolling storage cart (3-tier)",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 76,
+    "competition_score": 66,
+    "estimated_unit_cost_usd_low": 7.8,
+    "estimated_unit_cost_usd_high": 12.4,
+    "unit_weight_kg": 3.6,
+    "risk_level": "medium",
+    "risk_flags": [
+      "oversized"
+    ],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#rolling-storage-cart-3tier"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 34.99
+  },
+  {
+    "product_id": "HO-fabric-storage-cube-bins",
+    "product_title": "fabric storage cube bins",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 61,
+    "competition_score": 74,
+    "estimated_unit_cost_usd_low": 1.9,
+    "estimated_unit_cost_usd_high": 3.2,
+    "unit_weight_kg": 0.3,
+    "risk_level": "medium",
+    "risk_flags": [
+      "high_competition"
+    ],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#fabric-storage-cube-bins"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 11.99
+  },
+  {
+    "product_id": "HO-lazy-susan-turntable",
+    "product_title": "lazy susan turntable organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 68,
+    "competition_score": 55,
+    "estimated_unit_cost_usd_low": 2.4,
+    "estimated_unit_cost_usd_high": 4.1,
+    "unit_weight_kg": 0.62,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#lazy-susan-turntable"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 13.99
+  },
+  {
+    "product_id": "HO-adhesive-cable-clips",
+    "product_title": "adhesive cable clips set",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 57,
+    "competition_score": 82,
+    "estimated_unit_cost_usd_low": 0.6,
+    "estimated_unit_cost_usd_high": 1.4,
+    "unit_weight_kg": 0.08,
+    "risk_level": "medium",
+    "risk_flags": [
+      "high_competition",
+      "thin_margin"
+    ],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#adhesive-cable-clips"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 6.99
+  },
+  {
+    "product_id": "HO-stackable-shoe-rack",
+    "product_title": "stackable shoe rack",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 63,
+    "competition_score": 69,
+    "estimated_unit_cost_usd_low": 4.6,
+    "estimated_unit_cost_usd_high": 7.3,
+    "unit_weight_kg": 1.85,
+    "risk_level": "medium",
+    "risk_flags": [
+      "oversized"
+    ],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#stackable-shoe-rack"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 19.99
+  },
+  {
+    "product_id": "HO-fridge-storage-bins-set",
+    "product_title": "refrigerator storage bins set",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 79,
+    "competition_score": 57,
+    "estimated_unit_cost_usd_low": 3.1,
+    "estimated_unit_cost_usd_high": 5.2,
+    "unit_weight_kg": 0.68,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#fridge-storage-bins-set"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 18.99
+  },
+  {
+    "product_id": "HO-jewelry-tray-drawer-insert",
+    "product_title": "jewelry tray drawer insert",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 55,
+    "competition_score": 46,
+    "estimated_unit_cost_usd_low": 2.7,
+    "estimated_unit_cost_usd_high": 4.5,
+    "unit_weight_kg": 0.34,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#jewelry-tray-drawer-insert"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 14.99
+  },
+  {
+    "product_id": "HO-wall-mounted-mail-organizer",
+    "product_title": "wall-mounted mail organizer",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 49,
+    "competition_score": 43,
+    "estimated_unit_cost_usd_low": 3.2,
+    "estimated_unit_cost_usd_high": 5.4,
+    "unit_weight_kg": 0.58,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#wall-mounted-mail-organizer"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 17.99
+  },
+  {
+    "product_id": "HO-collapsible-laundry-sorter",
+    "product_title": "collapsible laundry sorter",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 67,
+    "competition_score": 61,
+    "estimated_unit_cost_usd_low": 5.4,
+    "estimated_unit_cost_usd_high": 8.9,
+    "unit_weight_kg": 1.95,
+    "risk_level": "medium",
+    "risk_flags": [
+      "oversized"
+    ],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#collapsible-laundry-sorter"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 29.99
+  },
+  {
+    "product_id": "HO-expandable-utensil-tray",
+    "product_title": "expandable utensil drawer tray",
+    "category": "home_organization",
+    "market": "US",
+    "trend_score": 71,
+    "competition_score": 50,
+    "estimated_unit_cost_usd_low": 2.3,
+    "estimated_unit_cost_usd_high": 3.9,
+    "unit_weight_kg": 0.42,
+    "risk_level": "low",
+    "risk_flags": [],
+    "confidence": 0.25,
+    "data_class": "curated_synthetic",
+    "provenance_note": "CURATED SYNTHETIC. Hand-written plausible values for developing and testing the scoring engine. Not observed from any marketplace, supplier or customs source. Do not quote, publish or sell.",
+    "source_urls": [
+      "curated://importalpha/home-organization/v1#expandable-utensil-tray"
+    ],
+    "last_observed_at": "2026-09-22T00:00:00+00:00",
+    "estimated_retail_price_usd": 12.99
+  }
+]

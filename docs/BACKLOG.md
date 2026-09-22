@@ -51,14 +51,18 @@
 - [x] Add OpenAPI contract for the 4 MVP endpoints (stubs, `status="stub"`)
 - [x] Add Pydantic request/response schemas (`app/schemas.py`)
 - [x] Add `fastapi` + profile-gated `pytest` services to docker-compose.yml
-- [x] Add tests/test_api.py (16 tests)
-- [ ] Add SQLite state store (tasks, events, artifacts)
-- [ ] Persist reports so GET /v1/reports/{id} 404s on an unknown id
-- [ ] Add product opportunity scoring engine (schema already in app/schemas.py)
+- [x] Add tests/test_api.py (rewritten for real data, 27 tests)
+- [x] Add product opportunity scoring engine (`app/services/scoring.py`)
+- [x] Add curated home-organization fixture dataset (20 products)
+- [x] Add landed-cost estimator (`app/services/landed_cost.py`)
+- [x] Add report generation endpoint (in-memory store)
+- [x] GET /v1/reports/{id} 404s on an unknown id
+- [x] Tests: scoring, landed cost, data loader, API (141 total)
+- [ ] Add SQLite state store (tasks, events, artifacts), replacing the
+      in-memory report store
+- [ ] Replace curated fixture with sourced data (`status="curated"` -> `"ok"`)
+- [ ] Revisit margin saturation — currently flat across all 20 products
 - [ ] Wire POST /v1/reports to the Kafka lane
-- [ ] Add curated home-organization fixture dataset (20 products)
-- [ ] Add landed-cost estimator endpoint
-- [ ] Add report generation endpoint
 
 ## P2 — Monetization
 

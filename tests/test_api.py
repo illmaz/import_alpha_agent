@@ -1,9 +1,8 @@
-"""Contract tests for the FastAPI skeleton.
+"""Contract tests for the v1 API.
 
-These assert the wire format and the honesty of the stubs — that no endpoint
-emits a number it did not source. They deliberately do not assert business
-values; there is no scoring engine yet. Runs fully offline: the API process
-does not touch Kafka.
+P1 Part 2: the endpoints now return curated, scored data rather than stubs.
+These assert the wire format, the pagination and error contracts, and — most
+importantly — that nothing curated can present itself as observed.
 """
 
 from __future__ import annotations
@@ -18,11 +17,28 @@ from app.schemas import (
     ReportResponse,
     ResultStatus,
 )
+from app.services.report_store import report_store
 
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _clean_report_store():
+    report_store.clear()
+    yield
+    report_store.clear()
+
+
+VALID_LANDED_COST = {
+    "product_title": "bamboo drawer organizer",
+    "unit_cost_usd": 2.40,
+    "units": 500,
+    "unit_weight_kg": 0.35,
+    "destination_country": "US",
+}
 
 
 # --- health ---------------------------------------------------------------
@@ -37,57 +53,99 @@ def test_health_returns_ok(client: TestClient) -> None:
 # --- GET /v1/opportunities ------------------------------------------------
 
 
-def test_opportunities_returns_valid_empty_payload(client: TestClient) -> None:
-    response = client.get("/v1/opportunities")
+def test_opportunities_returns_twenty_scored_products(client: TestClient) -> None:
+    response = client.get("/v1/opportunities", params={"limit": 100})
     assert response.status_code == 200
 
-    body = response.json()
-    parsed = OpportunitiesResponse.model_validate(body)
-    assert parsed.items == []
-    assert parsed.count == 0
-    assert parsed.status is ResultStatus.STUB
+    parsed = OpportunitiesResponse.model_validate(response.json())
+    assert len(parsed.items) == 20
+    assert parsed.count == 20
+    assert parsed.status is ResultStatus.CURATED
+    assert all(0 <= item.opportunity_score <= 100 for item in parsed.items)
 
 
-def test_opportunities_accepts_pagination_params(client: TestClient) -> None:
-    response = client.get("/v1/opportunities", params={"limit": 5, "offset": 10})
-    assert response.status_code == 200
-    OpportunitiesResponse.model_validate(response.json())
+def test_opportunities_are_sorted_best_first(client: TestClient) -> None:
+    body = client.get("/v1/opportunities", params={"limit": 100}).json()
+    scores = [item["opportunity_score"] for item in body["items"]]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_opportunities_carry_costs_margin_and_explanation(client: TestClient) -> None:
+    item = client.get("/v1/opportunities").json()["items"][0]
+    assert item["estimated_unit_cost_usd"]["low_usd"] > 0
+    assert item["estimated_landed_cost_usd"] > 0
+    assert item["estimated_margin_pct"] is not None
+    assert item["score_explanation"]
+    assert item["competition_signal"] in {"low", "moderate", "high", "unknown"}
+
+
+def test_opportunities_pagination_slices_without_changing_count(client: TestClient) -> None:
+    body = client.get("/v1/opportunities", params={"limit": 5, "offset": 0}).json()
+    assert len(body["items"]) == 5
+    assert body["count"] == 20, "count is the total, not the page size"
+
+    second = client.get("/v1/opportunities", params={"limit": 5, "offset": 5}).json()
+    assert [i["product_id"] for i in body["items"]] != [
+        i["product_id"] for i in second["items"]
+    ]
+
+
+def test_opportunities_offset_past_the_end_returns_empty_page(client: TestClient) -> None:
+    body = client.get("/v1/opportunities", params={"offset": 999}).json()
+    assert body["items"] == []
+    assert body["count"] == 20
+
+
+@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 101}, {"offset": -1}])
+def test_opportunities_rejects_bad_pagination(client: TestClient, params: dict) -> None:
+    assert client.get("/v1/opportunities", params=params).status_code == 422
 
 
 # --- POST /v1/landed-cost -------------------------------------------------
 
 
-def test_landed_cost_echoes_identity_and_estimates_nothing(client: TestClient) -> None:
-    payload = {
-        "product_title": "bamboo drawer organizer",
-        "unit_cost_usd": 2.4,
-        "units": 500,
-        "unit_weight_kg": 0.35,
-        "destination_country": "US",
-    }
-    response = client.post("/v1/landed-cost", json=payload)
+def test_landed_cost_returns_a_real_estimate(client: TestClient) -> None:
+    response = client.post("/v1/landed-cost", json=VALID_LANDED_COST)
     assert response.status_code == 200
 
     parsed = LandedCostResponse.model_validate(response.json())
-    assert parsed.product_title == payload["product_title"]
-    assert parsed.units == payload["units"]
+    assert parsed.product_title == VALID_LANDED_COST["product_title"]
+    assert parsed.units == 500
+    # goods 1200 + freight 87.50 + duty 78.00
+    assert parsed.estimated_landed_cost_usd == pytest.approx(1365.50)
+    assert parsed.estimated_landed_cost_per_unit_usd == pytest.approx(2.731)
+    assert parsed.freight_per_unit_usd == pytest.approx(0.175)
+    assert parsed.duty_pct == pytest.approx(6.5)
 
-    # The point of the stub: identity echoes back, estimates stay absent.
-    assert parsed.status is ResultStatus.STUB
-    assert parsed.estimated_landed_cost_usd is None
-    assert parsed.estimated_unit_cost_usd is None
-    assert parsed.confidence_score is None
-    assert parsed.source_metadata == []
+
+def test_landed_cost_flags_low_confidence_and_states_assumptions(client: TestClient) -> None:
+    body = client.post("/v1/landed-cost", json=VALID_LANDED_COST).json()
+    assert body["status"] == "curated"
+    assert body["confidence_score"] <= 0.5
+    assert "low_data" in body["risk_flags"]
+    assert body["assumptions"], "an estimate must never ship without its assumptions"
+
+
+def test_landed_cost_requires_weight_to_price_freight(client: TestClient) -> None:
+    payload = {k: v for k, v in VALID_LANDED_COST.items() if k != "unit_weight_kg"}
+    response = client.post("/v1/landed-cost", json=payload)
+    assert response.status_code == 422
+    assert "unit_weight_kg" in response.json()["detail"]
+
+
+def test_landed_cost_rejects_an_unsupported_destination(client: TestClient) -> None:
+    payload = {**VALID_LANDED_COST, "destination_country": "DE"}
+    assert client.post("/v1/landed-cost", json=payload).status_code == 422
 
 
 @pytest.mark.parametrize(
     "bad_payload",
     [
-        {"product_title": "x", "unit_cost_usd": 0, "units": 10},      # cost must be > 0
-        {"product_title": "x", "unit_cost_usd": 2.0, "units": 0},     # units must be > 0
-        {"product_title": "", "unit_cost_usd": 2.0, "units": 10},     # title required
-        {"unit_cost_usd": 2.0, "units": 10},                          # title missing
-        {"product_title": "x", "unit_cost_usd": 2.0, "units": 1, "junk": 1},  # extra forbidden
+        {"product_title": "x", "unit_cost_usd": 0, "units": 10, "unit_weight_kg": 0.3},
+        {"product_title": "x", "unit_cost_usd": 2.0, "units": 0, "unit_weight_kg": 0.3},
+        {"product_title": "", "unit_cost_usd": 2.0, "units": 10, "unit_weight_kg": 0.3},
+        {"unit_cost_usd": 2.0, "units": 10, "unit_weight_kg": 0.3},
+        {"product_title": "x", "unit_cost_usd": 2.0, "units": 1, "junk": 1},
     ],
 )
 def test_landed_cost_rejects_invalid_requests(client: TestClient, bad_payload: dict) -> None:
@@ -97,16 +155,21 @@ def test_landed_cost_rejects_invalid_requests(client: TestClient, bad_payload: d
 # --- POST /v1/reports -----------------------------------------------------
 
 
-def test_create_report_allocates_pending_id(client: TestClient) -> None:
+def test_create_report_returns_202_with_scored_opportunities(client: TestClient) -> None:
     response = client.post("/v1/reports", json={"category": "home_organization"})
     assert response.status_code == 202
 
     parsed = ReportResponse.model_validate(response.json())
     assert parsed.report_id.startswith("R-")
-    assert parsed.report_status.value == "pending"
-    assert parsed.status is ResultStatus.STUB
-    assert parsed.opportunities == []
-    assert parsed.source_metadata == []
+    assert parsed.report_status.value == "ready"
+    assert parsed.status is ResultStatus.CURATED
+    assert len(parsed.opportunities) == 20
+    assert parsed.summary
+
+
+def test_create_report_honours_max_products(client: TestClient) -> None:
+    body = client.post("/v1/reports", json={"max_products": 5}).json()
+    assert len(body["opportunities"]) == 5
 
 
 def test_create_report_ids_are_unique(client: TestClient) -> None:
@@ -123,13 +186,22 @@ def test_create_report_rejects_out_of_range_max_products(client: TestClient) -> 
 # --- GET /v1/reports/{report_id} ------------------------------------------
 
 
-def test_get_report_echoes_requested_id(client: TestClient) -> None:
-    response = client.get("/v1/reports/R-abc12345")
+def test_created_report_can_be_fetched_back(client: TestClient) -> None:
+    created = client.post("/v1/reports", json={"query": "under-sink"}).json()
+
+    response = client.get(f"/v1/reports/{created['report_id']}")
     assert response.status_code == 200
 
-    parsed = ReportResponse.model_validate(response.json())
-    assert parsed.report_id == "R-abc12345"
-    assert parsed.status is ResultStatus.STUB
+    fetched = ReportResponse.model_validate(response.json())
+    assert fetched.report_id == created["report_id"]
+    assert fetched.query == "under-sink"
+    assert len(fetched.opportunities) == len(created["opportunities"])
+
+
+def test_unknown_report_id_returns_404(client: TestClient) -> None:
+    response = client.get("/v1/reports/R-doesnotexist")
+    assert response.status_code == 404
+    assert "R-doesnotexist" in response.json()["detail"]
 
 
 # --- contract-wide --------------------------------------------------------
@@ -150,29 +222,31 @@ def test_docs_page_is_served(client: TestClient) -> None:
     assert client.get("/docs").status_code == 200
 
 
-def test_no_stub_endpoint_emits_an_unsourced_number(client: TestClient) -> None:
-    """AGENTS.md: no datapoint without source_url/observed_at/confidence.
+def test_no_endpoint_presents_curated_data_as_observed(client: TestClient) -> None:
+    """AGENTS.md: curated numbers must never look sourced.
 
-    A stub that quietly returned a plausible estimate would pass every other
-    test in this file, so this asserts the rule directly.
+    Every payload that carries a number must say status="curated", stay at low
+    confidence, and cite only curated:// URIs — never an http(s) link that a
+    reader could mistake for a verifiable observation.
     """
+    created = client.post("/v1/reports", json={}).json()
     bodies = [
-        client.get("/v1/opportunities").json(),
-        client.post(
-            "/v1/landed-cost",
-            json={"product_title": "x", "unit_cost_usd": 1.0, "units": 1},
-        ).json(),
-        client.post("/v1/reports", json={}).json(),
-        client.get("/v1/reports/R-abc12345").json(),
+        client.get("/v1/opportunities", params={"limit": 100}).json(),
+        client.post("/v1/landed-cost", json=VALID_LANDED_COST).json(),
+        created,
+        client.get(f"/v1/reports/{created['report_id']}").json(),
     ]
     for body in bodies:
-        assert body["status"] == "stub"
-        assert body.get("confidence_score") is None
-        assert body.get("source_metadata", []) == []
-        for field in (
-            "opportunity_score",
-            "estimated_landed_cost_usd",
-            "estimated_unit_cost_usd",
-            "estimated_margin_pct",
-        ):
-            assert body.get(field) is None, f"{field} was populated in a stub"
+        assert body["status"] == "curated"
+        # The opportunities envelope is a list wrapper and carries no aggregate
+        # confidence; its items each carry their own, asserted below.
+        confidence = body.get("confidence_score")
+        assert confidence is None or confidence <= 0.5
+
+    for item in bodies[0]["items"]:
+        assert item["status"] == "curated"
+        assert item["source_metadata"], item["product_id"]
+        for source in item["source_metadata"]:
+            assert source["source_url"].startswith("curated://")
+            assert source["observed_at"]
+            assert source["confidence"] <= 0.5

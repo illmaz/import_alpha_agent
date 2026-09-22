@@ -2,7 +2,8 @@
 
 ## Phase
 
-P1 in progress — FastAPI skeleton and OpenAPI contract are up; no data layer yet.
+P1 in progress — scoring engine, curated fixtures and landed-cost estimator are
+live behind the API. No database yet; reports are in-memory.
 
 ## Completed
 
@@ -103,22 +104,60 @@ P1 in progress — FastAPI skeleton and OpenAPI contract are up; no data layer y
   events yet, so it serves with the broker down.
 
 
+**P1 Part 2 (scoring + fixtures + landed cost) — FINISHED 2026-09-22.**
+
+- Added `app/services/scoring.py`: `calculate_opportunity_score()` —
+  margin 0.35 + trend 0.25 + competition_inverse 0.20 + risk_inverse 0.10 +
+  confidence 0.10. Pure, deterministic, no I/O. Returns `(int, explanation)`
+  where the explanation is a term-by-term breakdown. Margin saturates at 60%
+  (`MARGIN_SATURATION_PCT`); out-of-range inputs raise rather than clamp.
+- Added `app/services/landed_cost.py`: flat $0.50/kg freight + 6.5% ad valorem
+  duty. `confidence="low"`, and the `assumptions` list travels with every
+  number so an estimate cannot be quoted without its caveats.
+- Added `data/fixtures/home_organization_products.json`: 20 products.
+  **Labelled `data_class: "curated_synthetic"`** with `curated://` source URIs,
+  not http(s) links. Fabricating a marketplace URL would be worse than
+  fabricating a number, because it looks verifiable. Confidence is a uniform
+  0.25 — varying it would imply differential evidence that does not exist.
+- Added `estimated_retail_price_usd` to the fixture: margin has to be derived
+  from something, and deriving it from a curated retail anchor is honest where
+  hardcoding a margin would not be.
+- Added `app/services/data_loader.py`: fixture -> landed cost -> margin ->
+  score -> `ProductOpportunity`, sorted best first, `lru_cache`d on the default
+  path. Adds `RiskFlag.LOW_DATA` to every curated record automatically.
+- Added `app/services/report_store.py`: in-memory, lock-guarded. **Reports do
+  not survive a restart and do not work across replicas** — run one replica
+  until the SQLite store lands.
+- Added `ResultStatus.CURATED` to schemas. It is not a lesser `OK`: it means
+  the numbers were never observed anywhere.
+- Wired all four endpoints to real services. `GET /v1/reports/{id}` now 404s
+  on an unknown id, which it could not do while there was nothing to look up in.
+- **141 tests pass** (was 65): +22 scoring, +19 landed cost, +24 data loader,
+  and test_api.py rewritten to 27. Verified identically on host and via
+  `docker compose run --rm pytest`.
+- **Verified live**: 8 services up; `/v1/opportunities` returns 20 scored
+  products; `/v1/landed-cost` returns $1365.50 for 500 x $2.40 @ 0.35kg;
+  `/v1/reports` returns 202 + fetchable report; unknown id returns 404.
+
+
 ## In Progress
 
-- P1 product core. Part 1 (skeleton) is done and awaiting review; the data
-  layer, scoring engine and fixtures are not started. P1 Part 1 files are
-  written but **not yet committed**.
+- P1 product core. Parts 1-2 are done and awaiting review. The data layer
+  (SQLite) is still not started. P1 Part 2 files are written but
+  **not yet committed**.
 
 ## Next Actions
 
-1. P1 Part 2: SQLite state store (tasks, events, artifacts) + report persistence,
-   so `GET /v1/reports/{id}` can 404 on an unknown id instead of echoing it back
-2. P1 Part 3: product opportunity scoring engine + curated home-organization
-   fixture dataset (20 products), each datapoint carrying source_url /
-   observed_at / confidence
-3. Wire `POST /v1/reports` to the Kafka lane so a report request becomes a goal
-4. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
-5. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
+1. P1 Part 3: SQLite state store, replacing the in-memory report store so
+   report_ids survive restarts and multiple replicas
+2. Replace the curated fixture with sourced data — this is the only change
+   needed to move responses from `status="curated"` to `status="ok"`
+3. Revisit margin weighting: with the current fixture every product clears the
+   60% saturation cap, so the margin term contributes a flat 35 to all 20
+   scores and does no ranking work (see DECISIONS.md)
+4. Wire `POST /v1/reports` to the Kafka lane so generation is genuinely async
+5. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
+6. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
 
 ## Blocked
 

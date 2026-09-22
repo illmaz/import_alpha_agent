@@ -24,9 +24,15 @@ def _utc_now_iso() -> str:
 
 
 class ResultStatus(str, Enum):
-    """Whether a payload carries real sourced data."""
+    """How much a payload's numbers can be trusted.
+
+    CURATED is not a lesser OK — it means the numbers were hand-written for
+    development and never observed anywhere. Nothing marked CURATED may be
+    quoted to a customer.
+    """
 
     OK = "ok"
+    CURATED = "curated"
     STUB = "stub"
 
 
@@ -97,6 +103,13 @@ class ProductOpportunity(BaseModel):
     estimated_margin_pct: Optional[float] = None
     competition_signal: CompetitionSignal = CompetitionSignal.UNKNOWN
 
+    trend_score: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    competition_score: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    estimated_retail_price_usd: Optional[float] = Field(default=None, ge=0.0)
+    score_explanation: Optional[str] = Field(
+        default=None, description="Term-by-term breakdown of opportunity_score."
+    )
+
     risk_flags: List[RiskFlag] = Field(default_factory=list)
     confidence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     source_metadata: List[SourceMetadata] = Field(default_factory=list)
@@ -139,6 +152,14 @@ class LandedCostResponse(BaseModel):
     estimated_landed_cost_usd: Optional[float] = Field(default=None, ge=0.0)
     estimated_landed_cost_per_unit_usd: Optional[float] = Field(default=None, ge=0.0)
     estimated_margin_pct: Optional[float] = None
+
+    freight_per_unit_usd: Optional[float] = Field(default=None, ge=0.0)
+    duty_pct: Optional[float] = Field(default=None, ge=0.0)
+    duty_usd: Optional[float] = Field(default=None, ge=0.0)
+    assumptions: List[str] = Field(
+        default_factory=list,
+        description="What the estimate rests on. Travels with every number.",
+    )
 
     risk_flags: List[RiskFlag] = Field(default_factory=list)
     confidence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
