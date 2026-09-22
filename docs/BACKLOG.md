@@ -69,7 +69,9 @@
 - [x] Wire POST /v1/reports to the Kafka lane (`app/services/kafka_publisher.py`)
 - [x] Add report_listener daemon settling rows from `goal.completed`
 - [x] Tests: listener + publisher, broker never touched (186 total)
-- [ ] Reap stale pending reports if the agent lane never reports back
+- [x] Reap stale pending reports (`scripts/report_reaper.py`, 10th service)
+- [x] Prepare the first live LLM run (`scripts/live_demo.sh`, .env.example)
+- [ ] **Run** the first live LLM run (needs a real key + approval to spend)
 - [ ] Move the SQLite file off the bind mount (named volume, then Postgres)
 
 ## P2 — Monetization

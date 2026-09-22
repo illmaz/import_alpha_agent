@@ -3,6 +3,64 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P1 Part 4.5 — Report reaper and live-run prep (2026-09-22)
+
+### The liveness invariant now covers reports
+
+Phase 2.5 established that every goal terminates. P1 Part 4 reopened the same
+hole one level up: a report is persisted as `pending` and published as a goal,
+and if the lane dies after publication nothing ever settles that row.
+
+`scripts/report_reaper.py` closes it. Every 60s it fails any report pending
+longer than `REPORT_STALE_AFTER_SECONDS` (default 300). **A report now always
+terminates: ready, failed by the listener, or failed by the reaper.**
+
+The threshold must stay comfortably above the orchestrator's own budget — a
+goal can burn `MAX_REPLANS` planning attempts plus `STEP_TTL_SECONDS` (default
+120) per stall. A reaper threshold below that would kill reports the lane was
+still legitimately working on. A test asserts the ordering
+(`test_threshold_exceeds_the_orchestrator_step_ttl`) so the two cannot drift
+apart silently.
+
+### The reaper merges the failure; it does not overwrite the body
+
+The brief specified `payload_json={"error": "agent_lane_timeout"}`. Written
+literally that would have made `GET /v1/reports/{id}` return **500**: the
+endpoint validates the stored payload as a `ReportResponse`, which requires
+`report_id` and forbids unknown fields. The caller would get an opaque server
+error instead of the failure we were trying to report.
+
+So the reaper does what the listener does for an escalation — keeps the body,
+sets `report_status=failed`, and puts `agent_lane_timeout` in the summary. A
+row that was created but never filled in gets a minimal valid body instead, so
+it is servable too. Two tests cover the HTTP read path specifically, because
+the unit-level write looked correct in both designs.
+
+### Empty LLM_PROVIDER crashes the orchestrator, so the demo writes .env
+
+`llm.get_llm()` falls through to `raise ValueError` on an empty
+`LLM_PROVIDER`, so passing the LLM settings through compose as
+`${LLM_PROVIDER:-}` would break every run where the variable is unset — the
+common case. `scripts/live_demo.sh` writes them into `.env` (gitignored, and
+already the documented mechanism, read through `env_file`) and backs up any
+existing file first.
+
+### The live demo asks before spending
+
+AGENTS.md: no spending money without human approval. The script states the
+provider, model and expected cost, then requires a `y` before it writes
+anything or starts a container. `--yes` skips it for CI. Aborting touches
+nothing.
+
+### Model ids in .env.example are current, not the ones in the brief
+
+The brief suggested `claude-3-5-haiku-20241022`. That id is stale and
+contradicts this repo's own `llm.DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"`.
+The current ids are `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5`,
+used with no date suffix appended. `.env.example` suggests `claude-haiku-4-5`
+for a first live run as the cheapest and fastest, and notes that the
+orchestrator defaults to `claude-opus-5` when `LLM_MODEL` is unset.
+
 ## P1 Part 4 — API wired to the agent lane (2026-09-22)
 
 ### report_id rides on task_id, not in the payload

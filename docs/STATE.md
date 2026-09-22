@@ -2,9 +2,9 @@
 
 ## Phase
 
-P1 in progress — the API and the agent lane are now one system: a report
-request becomes a Kafka goal and is settled by a listener. Data is still
-curated, not sourced.
+P1 in progress — the API and the agent lane are one system, every report
+terminates, and the stack is **ready for the first live LLM run**. Data is
+still curated, not sourced.
 
 ## Completed
 
@@ -213,22 +213,64 @@ curated, not sourced.
   created/updated timestamps.
 
 
+**P1 Part 4.5 (report reaper + live-run prep) — FINISHED 2026-09-22.**
+
+- Added `scripts/report_reaper.py`: sweeps every `REAP_INTERVAL_SECONDS`
+  (60) and fails any report pending longer than `REPORT_STALE_AFTER_SECONDS`
+  (300). **The liveness invariant now covers reports**, not just goals — a
+  report always ends ready, failed-by-listener, or failed-by-reaper.
+- Added `report_store.list_stale_pending()`, the query `ix_reports_status`
+  was created for.
+- The reaper **merges** the failure into the stored body rather than
+  replacing it with `{"error": ...}`. A bare error payload would fail
+  `ReportResponse` validation on read and turn `GET /v1/reports/{id}` into a
+  500. See DECISIONS.md.
+- Added `report_reaper` to docker-compose.yml — **10 services**.
+- Added `tests/test_report_reaper.py` (15 tests) using artificially old
+  timestamps, no sleeping. **201 tests pass.**
+- Rewrote `.env.example` with current model ids (`claude-opus-5`,
+  `claude-sonnet-5`, `claude-haiku-4-5`) and the reaper knobs. The ids
+  suggested in the task brief were stale.
+- Added `scripts/live_demo.sh`: validates provider config, **asks before
+  spending** (AGENTS.md), writes `.env`, recreates the orchestrator, submits a
+  report, tails the orchestrator while it plans, polls to completion and
+  prints the report.
+- **Verified live**: a 30-minute-old pending row was reaped within one sweep
+  (`R-staletest: FAILED (agent_lane_timeout, pending 1850s)`) and still read
+  back as HTTP 200 with `report_status=failed`. A concurrently submitted
+  healthy report settled to `ready` untouched.
+
+### Ready for first live LLM run
+
+Everything so far has run on `FakeLLM` — canned plans, no network, no spend.
+The stack is now ready for a real provider. Nothing has been run against one
+yet, and no key exists in this checkout.
+
+    export LLM_PROVIDER=anthropic
+    export LLM_API_KEY=sk-ant-...
+    export LLM_MODEL=claude-haiku-4-5     # cheapest; omit for claude-opus-5
+    ./scripts/live_demo.sh
+
+One goal is two model calls (one plan, one synthesis) — cents, not free. The
+script confirms before spending and prints how to revert to FakeLLM.
+
+
 ## In Progress
 
-- P1 product core. Parts 1-4 are done and awaiting review. P1 Part 4 files
-  are written but **not yet committed**.
+- P1 product core. Parts 1-4.5 are done and awaiting review. P1 Part 4.5
+  files are written but **not yet committed**.
+- The first live LLM run is prepared but **deliberately not run** — it needs
+  a real key and human approval to spend.
 
 ## Next Actions
 
-1. Reap stale pending reports. If the agent lane is down, a report stays
-   pending forever and nothing ends it — the same liveness hole Phase 2.5
-   closed for goals, now reopened one level up
+1. **First live LLM run** — `./scripts/live_demo.sh` with a real key. This is
+   the next thing to do and the first real spend on the project
 2. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`
 3. Alembic, before the first schema change to a table holding real rows
 4. Move the database off the bind mount (named volume, then Postgres). SQLite
-   on a bind mount cost us WAL already; it is a dev convenience, not a
-   deployment posture
+   on a bind mount has already cost us WAL
 5. Persist the agent lane's tasks/events/artifacts — only reports are stored
 6. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)

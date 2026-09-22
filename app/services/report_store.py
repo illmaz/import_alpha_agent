@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
@@ -95,6 +96,22 @@ async def list_reports(status: Optional[str] = None, limit: int = 50) -> list[Re
     statement = select(Report).order_by(Report.created_at.desc()).limit(limit)
     if status is not None:
         statement = statement.where(Report.status == status)
+    async with get_sessionmaker()() as session:
+        result = await session.execute(statement)
+        return list(result.scalars().all())
+
+
+async def list_stale_pending(cutoff: datetime) -> list[Report]:
+    """Pending rows created before `cutoff`.
+
+    This is the query `ix_reports_status` was added for. Oldest first, so a
+    backlog is cleared in the order it accumulated.
+    """
+    statement = (
+        select(Report)
+        .where(Report.status == STATUS_PENDING, Report.created_at < cutoff)
+        .order_by(Report.created_at.asc())
+    )
     async with get_sessionmaker()() as session:
         result = await session.execute(statement)
         return list(result.scalars().all())
