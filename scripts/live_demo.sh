@@ -88,10 +88,17 @@ fi
 # The orchestrator reads these through compose's env_file, so they have to be
 # on disk before the container starts. Writing .env is the documented path;
 # it is gitignored.
+# Backups go OUTSIDE the repo. A copy of .env holds a live API key, and a
+# key-bearing file inside the working tree is one `git add -A` away from being
+# committed — which is exactly what happened once.
+BACKUP_DIR="${ENV_BACKUP_DIR:-$HOME/.import_alpha/env-backups}"
 if [ -f .env ]; then
-  BACKUP=".env.backup.$(date +%s)"
+  mkdir -p "$BACKUP_DIR"
+  chmod 700 "$BACKUP_DIR" 2>/dev/null || true
+  BACKUP="$BACKUP_DIR/env.$(date +%Y%m%d-%H%M%S)"
   cp .env "$BACKUP"
-  echo "==> backed up existing .env to $BACKUP"
+  chmod 600 "$BACKUP" 2>/dev/null || true
+  echo "==> backed up existing .env to $BACKUP (outside the repo)"
 fi
 touch .env
 # Drop any previous LLM_* lines, then append the current ones.
