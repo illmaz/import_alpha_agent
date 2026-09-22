@@ -5,6 +5,8 @@
     python scripts/manage_accounts.py issue-key <account_id> [label]
     python scripts/manage_accounts.py add-credits <account_id> 50
     python scripts/manage_accounts.py balance <account_id>
+    python scripts/manage_accounts.py history <account_id> [limit]
+    python scripts/manage_accounts.py reconcile [account_id]
     python scripts/manage_accounts.py list-accounts
     python scripts/manage_accounts.py list-keys <account_id>
     python scripts/manage_accounts.py revoke-key <key_hash>
@@ -96,6 +98,65 @@ async def cmd_balance(args: argparse.Namespace) -> int:
     return 0
 
 
+async def cmd_history(args: argparse.Namespace) -> int:
+    """Print the ledger: the answer to "why is my balance N"."""
+    if await billing.get_account(args.account_id) is None:
+        print(f"error: no account {args.account_id!r}", file=sys.stderr)
+        return 1
+
+    rows = await billing.list_transactions(args.account_id, limit=args.limit)
+    total = await billing.count_transactions(args.account_id)
+    balance = await billing.get_balance(args.account_id)
+
+    print(f"account  : {args.account_id}")
+    print(f"balance  : {balance} credits   ({total} ledger entries)")
+    if not rows:
+        print("no transactions yet")
+        return 0
+
+    print()
+    print(f"{'WHEN':<20} {'DELTA':>6}  {'REASON':<11} {'BALANCE':>7}  REFERENCE")
+    for row in rows:
+        when = row.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        print(
+            f"{when:<20} {row.delta:>+6}  {row.reason:<11} "
+            f"{row.balance_after:>7}  {row.reference or ''}"
+        )
+
+    if total > len(rows):
+        print(f"\n... {total - len(rows)} older entries (raise the limit to see them)")
+    return 0
+
+
+async def cmd_reconcile(args: argparse.Namespace) -> int:
+    """Check cached balances against the ledger sum."""
+    if args.account_id:
+        accounts = [await billing.get_account(args.account_id)]
+        if accounts[0] is None:
+            print(f"error: no account {args.account_id!r}", file=sys.stderr)
+            return 1
+    else:
+        accounts = await billing.list_accounts()
+
+    failures = 0
+    for account in accounts:
+        cached, derived = await billing.reconcile_detail(account.account_id)
+        if cached == derived:
+            print(f"  OK       {account.account_id}: {cached}")
+        else:
+            failures += 1
+            print(
+                f"  MISMATCH {account.account_id}: cached {cached} != ledger {derived}",
+                file=sys.stderr,
+            )
+
+    if failures:
+        print(f"\n{failures} account(s) do not reconcile.", file=sys.stderr)
+        return 1
+    print(f"\nall {len(accounts)} account(s) reconcile")
+    return 0
+
+
 async def cmd_list_accounts(_: argparse.Namespace) -> int:
     accounts = await billing.list_accounts()
     if not accounts:
@@ -152,6 +213,15 @@ def build_parser() -> argparse.ArgumentParser:
     bal = sub.add_parser("balance", help="show an account balance")
     bal.add_argument("account_id")
     bal.set_defaults(func=cmd_balance)
+
+    history = sub.add_parser("history", help="print the credit ledger")
+    history.add_argument("account_id")
+    history.add_argument("limit", nargs="?", type=int, default=50)
+    history.set_defaults(func=cmd_history)
+
+    rec = sub.add_parser("reconcile", help="check cached balances against the ledger")
+    rec.add_argument("account_id", nargs="?", default=None)
+    rec.set_defaults(func=cmd_reconcile)
 
     listing = sub.add_parser("list-accounts", help="list all accounts")
     listing.set_defaults(func=cmd_list_accounts)

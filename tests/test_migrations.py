@@ -71,6 +71,47 @@ def test_reports_has_account_id_not_null(migrated_db: Path) -> None:
     assert columns["account_id"]["nullable"] is False
 
 
+def test_ledger_table_is_created(migrated_db: Path) -> None:
+    inspector = inspector_for(migrated_db)
+    assert "credit_transactions" in inspector.get_table_names()
+
+    columns = {c["name"] for c in inspector.get_columns("credit_transactions")}
+    assert {"id", "account_id", "delta", "reason", "reference", "balance_after"} <= columns
+
+
+def test_ledger_backfills_opening_balances(tmp_path: Path) -> None:
+    """Pre-existing balances must get an opening entry, or nothing reconciles.
+
+    Built by migrating to the pre-ledger revision, inserting an account with a
+    balance the way the old code would have, then migrating the rest of the way.
+    """
+    import sqlite3
+
+    db_path = tmp_path / "backfill.db"
+    assert alembic("upgrade", REV_ACCOUNT_ID, db_path=db_path).returncode == 0
+
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "INSERT INTO credit_accounts (account_id, balance, label, created_at, updated_at)"
+        " VALUES ('old-acct', 42, 'legacy', '2026-09-01 00:00:00', '2026-09-01 00:00:00')"
+    )
+    connection.execute(
+        "INSERT INTO credit_accounts (account_id, balance, label, created_at, updated_at)"
+        " VALUES ('empty-acct', 0, 'legacy', '2026-09-01 00:00:00', '2026-09-01 00:00:00')"
+    )
+    connection.commit()
+
+    assert alembic("upgrade", "head", db_path=db_path).returncode == 0
+
+    rows = connection.execute(
+        "SELECT account_id, delta, reason FROM credit_transactions"
+    ).fetchall()
+    assert ("old-acct", 42, "adjustment") in rows
+    assert not [r for r in rows if r[0] == "empty-acct"], (
+        "a zero balance needs no opening entry"
+    )
+
+
 def test_reports_indexes_exist(migrated_db: Path) -> None:
     names = {i["name"] for i in inspector_for(migrated_db).get_indexes("reports")}
     assert {"ix_reports_status", "ix_reports_account_id"} <= names
@@ -106,8 +147,22 @@ def test_migrations_match_the_models(migrated_db: Path) -> None:
 # --- downgrade ------------------------------------------------------------
 
 
+# Revisions are named explicitly rather than with "-1": a relative step breaks
+# silently every time a new migration is added on top.
+REV_BASELINE = "f2c00b0a0a6e"
+REV_ACCOUNT_ID = "456aca293990"
+REV_LEDGER = "6c23c0d74c9b"
+
+
+def test_downgrade_removes_the_ledger(migrated_db: Path) -> None:
+    result = alembic("downgrade", REV_ACCOUNT_ID, db_path=migrated_db)
+    assert result.returncode == 0, f"downgrade failed:\n{result.stderr}"
+
+    assert "credit_transactions" not in inspector_for(migrated_db).get_table_names()
+
+
 def test_downgrade_removes_account_id(migrated_db: Path) -> None:
-    result = alembic("downgrade", "-1", db_path=migrated_db)
+    result = alembic("downgrade", REV_BASELINE, db_path=migrated_db)
     assert result.returncode == 0, f"downgrade failed:\n{result.stderr}"
 
     columns = {c["name"] for c in inspector_for(migrated_db).get_columns("reports")}

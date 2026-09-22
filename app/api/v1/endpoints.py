@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas import (
+    AccountTransactionsResponse,
+    CreditTransactionOut,
     LandedCostRequest,
     LandedCostResponse,
     OpportunitiesResponse,
@@ -160,7 +162,12 @@ async def create_report(
     queue work it has not paid for. If publishing then fails the credit is
     refunded — see below.
     """
-    if not await billing.deduct_credits(account_id, billing.REPORT_COST_CREDITS):
+    # The id is allocated before the charge so the ledger row can reference
+    # the report it paid for; without that, a history line is just "-1 charge"
+    # with nothing to trace it to.
+    report_id = report_store.new_report_id()
+
+    if not await billing.charge_for_report(account_id, report_id):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=(
@@ -170,7 +177,6 @@ async def create_report(
             ),
         )
 
-    report_id = report_store.new_report_id()
     await report_store.create_report(report_id, account_id)
 
     items = load_opportunities()[: payload.max_products]
@@ -214,7 +220,9 @@ async def create_report(
         await report_store.update_report(
             report_id, report_store.STATUS_FAILED, report.model_dump(mode="json")
         )
-        await billing.refund_credits(account_id, billing.REPORT_COST_CREDITS)
+        await billing.refund_credits(
+            account_id, billing.REPORT_COST_CREDITS, reference=f"{report_id}:publish_failed"
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Could not queue report {report_id!r} for generation: {exc}",
@@ -259,3 +267,43 @@ async def get_report(report_id: str) -> ReportResponse:
             detail=f"Report {report_id!r} is {row.status} with no stored body.",
         )
     return report
+
+
+# --------------------------------------------------------------------------
+# GET /v1/account/transactions
+# --------------------------------------------------------------------------
+
+
+@router.get(
+    "/account/transactions",
+    response_model=AccountTransactionsResponse,
+    summary="Your credit ledger, newest first",
+)
+async def list_own_transactions(
+    limit: int = Query(default=50, gt=0, le=200),
+    offset: int = Query(default=0, ge=0),
+    account_id: str = Depends(get_current_account),
+) -> AccountTransactionsResponse:
+    """Answers "why is my balance N" for the caller's own account.
+
+    There is deliberately no account_id parameter. The account comes from the
+    API key, so reading someone else's ledger is not a permission check that
+    could be got wrong — it is unrepresentable.
+    """
+    rows = await billing.list_transactions(account_id, limit=limit, offset=offset)
+    return AccountTransactionsResponse(
+        account_id=account_id,
+        balance=await billing.get_balance(account_id),
+        count=await billing.count_transactions(account_id),
+        items=[
+            CreditTransactionOut(
+                id=row.id,
+                delta=row.delta,
+                reason=row.reason,
+                reference=row.reference,
+                balance_after=row.balance_after,
+                created_at=row.created_at.isoformat(),
+            )
+            for row in rows
+        ],
+    )

@@ -49,13 +49,16 @@ def clean_tables(test_database: Path) -> Iterator[None]:
     listing test would see rows it never made.
     """
     from app.services.auth import clear_api_keys
-    from app.services.billing import clear_accounts
+    from app.services.billing import clear_accounts, clear_ledger
     from app.services.report_store import clear_reports
 
     async def _wipe() -> None:
         await clear_reports()
         await clear_api_keys()
         await clear_accounts()
+        # Ledger rows leak exactly as readily as accounts do, and a stale row
+        # makes reconcile() fail against a same-named account in a later test.
+        await clear_ledger()
 
     asyncio.run(_wipe())
     yield

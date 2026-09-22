@@ -239,3 +239,27 @@ class ErrorResponse(BaseModel):
 
     detail: str
     extra: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CreditTransactionOut(BaseModel):
+    """One ledger entry as the API returns it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    delta: int = Field(description="Signed: negative spends, positive credits.")
+    reason: str = Field(description="charge | refund | topup | purchase | adjustment")
+    reference: Optional[str] = Field(
+        default=None, description="Report id, payment id, or a note."
+    )
+    balance_after: int
+    created_at: str
+
+
+class AccountTransactionsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str
+    balance: int = Field(description="Current balance, cached from the ledger.")
+    count: int = Field(description="Total entries, before pagination.")
+    items: List[CreditTransactionOut] = Field(default_factory=list)

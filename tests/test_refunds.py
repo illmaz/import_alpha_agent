@@ -258,3 +258,70 @@ def test_settle_if_pending_rejects_a_bad_status() -> None:
     report_id = paid_report()
     with pytest.raises(ValueError):
         run(settle_if_pending(report_id, "banana", {}))
+
+
+# --- universal refund: any failure, not just the two known reasons --------
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "listener_error",          # the listener itself failed
+        "malformed_artifact",      # a reason nothing in the code knows about
+        "downstream_unavailable",
+        "",                        # no reason given at all
+    ],
+)
+def test_any_failure_reason_refunds(reason: str) -> None:
+    """The refund keys on the status, never on why it failed.
+
+    Reason-specific branches were the P2.1 bug: a failure mode nobody had
+    enumerated silently kept the customer's money. These reasons appear
+    nowhere in the daemons.
+    """
+    from app.services.billing import refund_report
+
+    report_id = paid_report()
+    assert run(get_balance(ACCOUNT)) == START - 1
+
+    account_id = run(settle_if_pending(report_id, STATUS_FAILED, _body(report_id)))
+    assert account_id == ACCOUNT
+    assert run(refund_report(report_id, account_id, reason)) is True
+
+    assert run(get_balance(ACCOUNT)) == START
+
+
+def test_listener_error_path_refunds() -> None:
+    """A listener failure settles and refunds like any other failure."""
+    from app.services.billing import refund_report
+
+    report_id = paid_report()
+
+    # However the listener decides a report is dead, the settlement is the
+    # same call, so the refund is the same call.
+    account_id = run(settle_if_pending(report_id, STATUS_FAILED, _body(report_id)))
+    run(refund_report(report_id, account_id, "listener_error"))
+
+    assert run(get_report(report_id)).status == STATUS_FAILED
+    assert run(get_balance(ACCOUNT)) == START
+
+
+def test_refund_is_recorded_on_the_ledger_with_its_reason() -> None:
+    from app.services.billing import list_transactions, refund_report
+
+    report_id = paid_report()
+    account_id = run(settle_if_pending(report_id, STATUS_FAILED, _body(report_id)))
+    run(refund_report(report_id, account_id, "listener_error"))
+
+    latest = run(list_transactions(ACCOUNT))[0]
+    assert latest.reason == "refund"
+    assert latest.reference == f"{report_id}:listener_error"
+
+
+def test_charge_and_refund_leave_a_reconciling_ledger() -> None:
+    from app.services.billing import reconcile, refund_report
+
+    report_id = paid_report(age_seconds=STALE)
+    run(report_reaper.reap_once())
+
+    assert run(reconcile(ACCOUNT)) is True

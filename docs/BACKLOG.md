@@ -75,17 +75,41 @@
 
 ## P2 — Monetization
 
+### P2.1 — Auth and credits (done)
+
 - [x] Add API key auth (SHA-256 hashed keys, Bearer header, 401)
 - [x] Add prepaid credit ledger (integer balances, atomic deduction)
 - [x] 402-on-empty-balance for POST /v1/reports
 - [x] Add scripts/manage_accounts.py (create/issue/top-up/revoke)
+
+### P2.1.5 — Migrations and refunds (done)
+
 - [x] Add Alembic migrations (baseline + account_id on reports)
 - [x] Add account_id to the report row
 - [x] Refund credits when the reaper or the listener fails a report
 - [x] Make refunds idempotent across both daemons (settle_if_pending)
-- [ ] Append-only credit ledger (balance derived, history queryable)
+
+### P2.2 — Append-only ledger (done)
+
+- [x] Add CreditTransaction (signed delta, reason, reference, balance_after)
+- [x] Migration with an opening-balance backfill for existing accounts
+- [x] Single mutation path: `_apply()` is the only writer of a balance
+- [x] reconcile(account_id): cached balance vs SUM(delta)
+- [x] Universal refund — keyed on status=failed, never on the reason
+- [x] `manage_accounts.py history` / `reconcile`
+- [x] GET /v1/account/transactions (own account only, paginated)
+- [ ] Enforce append-only in the database (needs Postgres grants; SQLite
+      cannot, so it is currently a service-layer discipline)
+
+### P2.3 — Stripe (next)
+
 - [ ] Add Stripe Checkout for credit purchases
-- [ ] Add usage metering (per-account request/spend history)
+- [ ] Webhook -> `record_purchase()` (already wired into the ledger, unused)
+- [ ] Reconcile Stripe events against ledger purchase rows
+
+### P2.4 — Metering and agent payments
+
+- [ ] Add usage metering (per-account request history, not just spend)
 - [ ] Add x402 sandbox payment challenge (testnet only)
 
 ## P3 — Growth
