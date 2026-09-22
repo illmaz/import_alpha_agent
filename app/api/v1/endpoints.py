@@ -1,14 +1,18 @@
 """v1 endpoints.
 
-Backed by the curated fixture set and the deterministic scoring engine. No
-database and no live sourcing yet, so every response carries
-`status="curated"` — plausible numbers, never observed. See
-app/services/data_loader.py.
+Every route requires `Authorization: Bearer <key>`; the dependency is declared
+on the router so a new endpoint is authenticated by default.
+
+Data is still curated: responses carry `status="curated"` — plausible
+hand-written values, never observed. See app/services/data_loader.py.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas import (
     LandedCostRequest,
@@ -22,9 +26,48 @@ from app.schemas import (
 )
 from app.services.data_loader import load_opportunities
 from app.services.landed_cost import estimate_landed_cost
-from app.services import kafka_publisher, report_store
+from app.services import billing, kafka_publisher, report_store
+from app.services.auth import verify_api_key
 
-router = APIRouter(prefix="/v1", tags=["v1"])
+# auto_error=False so a missing header reaches our handler and gets the same
+# 401 shape as a bad one; the default would emit a bare 403 for "no header",
+# which tells a caller the wrong thing.
+_bearer = HTTPBearer(auto_error=False, description="API key issued by ImportAlpha.")
+
+
+async def get_current_account(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> str:
+    """Resolve `Authorization: Bearer <key>` to an account_id, or 401.
+
+    Missing, malformed, unknown and revoked keys are deliberately
+    indistinguishable in the response: telling a caller which one it was helps
+    nobody but someone probing for valid keys.
+    """
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing or invalid API key. Send 'Authorization: Bearer <key>'.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if credentials is None or not credentials.credentials:
+        raise unauthorized
+
+    account_id = await verify_api_key(credentials.credentials)
+    if account_id is None:
+        raise unauthorized
+    return account_id
+
+
+# Applied at the router, so a new endpoint is authenticated by default. An
+# endpoint that should be public has to opt out explicitly, which is the safer
+# direction for the mistake to run in.
+router = APIRouter(
+    prefix="/v1",
+    tags=["v1"],
+    dependencies=[Depends(get_current_account)],
+    responses={401: {"description": "Missing or invalid API key."}},
+)
 
 
 @router.get(
@@ -103,17 +146,30 @@ def estimate_landed_cost_endpoint(payload: LandedCostRequest) -> LandedCostRespo
     status_code=status.HTTP_202_ACCEPTED,
     summary="Request a product viability report",
 )
-async def create_report(payload: ReportRequest) -> ReportResponse:
-    """Accept the request, persist it as pending, and hand it to the agent lane.
+async def create_report(
+    payload: ReportRequest,
+    account_id: str = Depends(get_current_account),
+) -> ReportResponse:
+    """Charge one credit, persist the request as pending, hand it to the lane.
 
-    The response is the pending report, not the finished one: generation now
+    The response is the pending report, not the finished one: generation
     happens asynchronously on Kafka and completes when report_listener sees
     `goal.completed`. Poll GET /v1/reports/{id}, which answers 409 until then.
 
-    The curated opportunities are computed and stored up front so the row is
-    never an empty shell, and so a caller can see what the report will contain
-    while the lane works on the narrative summary.
+    The credit is taken *before* the goal is published, so a caller cannot
+    queue work it has not paid for. If publishing then fails the credit is
+    refunded — see below.
     """
+    if not await billing.deduct_credits(account_id, billing.REPORT_COST_CREDITS):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                f"Insufficient credits: a report costs "
+                f"{billing.REPORT_COST_CREDITS} and your balance is "
+                f"{await billing.get_balance(account_id)}. Top up to continue."
+            ),
+        )
+
     report_id = report_store.new_report_id()
     await report_store.create_report(report_id)
 
@@ -153,10 +209,12 @@ async def create_report(payload: ReportRequest) -> ReportResponse:
         )
     except Exception as exc:  # broker down or unreachable
         # Without a published goal nothing will ever complete this report, so
-        # it is marked failed now rather than left pending forever.
+        # it is marked failed now rather than left pending forever — and the
+        # credit goes back, because the customer is not paying for an outage.
         await report_store.update_report(
             report_id, report_store.STATUS_FAILED, report.model_dump(mode="json")
         )
+        await billing.refund_credits(account_id, billing.REPORT_COST_CREDITS)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Could not queue report {report_id!r} for generation: {exc}",

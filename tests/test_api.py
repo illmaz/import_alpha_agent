@@ -22,11 +22,49 @@ from app.schemas import (
 
 
 @pytest.fixture(scope="module")
-def client() -> TestClient:
+def _raw_client() -> TestClient:
     # The context manager runs the lifespan, which creates the schema against
     # the temporary database configured in conftest.
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def client(_raw_client: TestClient, auth_headers: dict) -> TestClient:
+    """Authenticated client. Use `_raw_client` to test the unauthenticated path."""
+    _raw_client.headers.update(auth_headers)
+    return _raw_client
+
+
+ACCOUNT_ID = "acct-test"
+STARTING_CREDITS = 50
+
+
+@pytest.fixture(autouse=True)
+def account() -> str:
+    """A funded account for each test. The table is wiped between tests."""
+    import asyncio
+
+    from app.services.billing import create_account
+
+    asyncio.run(create_account(ACCOUNT_ID, STARTING_CREDITS, label="pytest"))
+    return ACCOUNT_ID
+
+
+@pytest.fixture(autouse=True)
+def auth_headers(account: str) -> dict:
+    """Issue a key and make it the default header on every request.
+
+    Patching the client's headers rather than threading them through every
+    call keeps the existing tests readable — they are testing endpoint
+    behaviour, not the auth handshake, which has its own tests below.
+    """
+    import asyncio
+
+    from app.services.auth import issue_api_key
+
+    key, _ = asyncio.run(issue_api_key(account, label="pytest"))
+    return {"Authorization": f"Bearer {key}"}
 
 
 @pytest.fixture(autouse=True)
@@ -397,3 +435,182 @@ def test_pending_report_returns_409_not_404(client: TestClient) -> None:
     assert "pending" in response.json()["detail"]
 
     assert client.get("/v1/reports/R-neverexisted").status_code == 404
+
+
+# --- authentication -------------------------------------------------------
+
+
+V1_ENDPOINTS = [
+    ("get", "/v1/opportunities", None),
+    ("post", "/v1/landed-cost", VALID_LANDED_COST),
+    ("post", "/v1/reports", {}),
+    ("get", "/v1/reports/R-anything", None),
+]
+
+
+@pytest.fixture
+def anon_client(_raw_client: TestClient) -> TestClient:
+    """The same client with no Authorization header."""
+    _raw_client.headers.pop("Authorization", None)
+    return _raw_client
+
+
+@pytest.mark.parametrize("method,path,body", V1_ENDPOINTS)
+def test_every_v1_endpoint_401s_without_a_key(
+    anon_client: TestClient, method: str, path: str, body: dict | None
+) -> None:
+    response = getattr(anon_client, method)(path, **({"json": body} if body is not None else {}))
+    assert response.status_code == 401, f"{method.upper()} {path} was reachable anonymously"
+
+
+def test_401_names_the_expected_header(anon_client: TestClient) -> None:
+    response = anon_client.get("/v1/opportunities")
+    assert "Authorization" in response.json()["detail"]
+    assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Bearer ia_totallymadeupkeythatdoesnotexist000000",
+        "Bearer not-even-the-right-shape",
+        "Bearer ",
+        "ia_missing_the_bearer_scheme_entirely_0000000",
+        "Basic dXNlcjpwYXNz",
+    ],
+)
+def test_bad_authorization_headers_401(anon_client: TestClient, header: str) -> None:
+    response = anon_client.get("/v1/opportunities", headers={"Authorization": header})
+    assert response.status_code == 401
+
+
+def test_revoked_key_stops_working(anon_client: TestClient, account: str) -> None:
+    import asyncio
+
+    from app.services.auth import hash_api_key, issue_api_key, revoke_api_key
+
+    key, _ = asyncio.run(issue_api_key(account, label="doomed"))
+    headers = {"Authorization": f"Bearer {key}"}
+
+    assert anon_client.get("/v1/opportunities", headers=headers).status_code == 200
+
+    asyncio.run(revoke_api_key(hash_api_key(key)))
+
+    assert anon_client.get("/v1/opportunities", headers=headers).status_code == 401
+
+
+def test_health_stays_public(anon_client: TestClient) -> None:
+    """Liveness probes must not need a credential."""
+    assert anon_client.get("/health").status_code == 200
+
+
+def test_openapi_documents_the_bearer_requirement(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    assert "HTTPBearer" in schema.get("components", {}).get("securitySchemes", {})
+
+
+# --- billing --------------------------------------------------------------
+
+
+def _balance(account_id: str) -> int:
+    import asyncio
+
+    from app.services.billing import get_balance
+
+    return asyncio.run(get_balance(account_id))
+
+
+def test_creating_a_report_costs_one_credit(client: TestClient, account: str) -> None:
+    before = _balance(account)
+
+    assert client.post("/v1/reports", json={}).status_code == 202
+
+    assert _balance(account) == before - 1
+
+
+def test_each_report_costs_a_credit(client: TestClient, account: str) -> None:
+    before = _balance(account)
+    for _ in range(3):
+        client.post("/v1/reports", json={})
+    assert _balance(account) == before - 3
+
+
+def test_empty_balance_returns_402(client: TestClient, account: str) -> None:
+    import asyncio
+
+    from app.services.billing import deduct_credits
+
+    asyncio.run(deduct_credits(account, STARTING_CREDITS))  # spend it all
+    assert _balance(account) == 0
+
+    response = client.post("/v1/reports", json={})
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert "Insufficient credits" in detail
+    assert "balance is 0" in detail
+
+
+def test_402_does_not_create_a_report(client: TestClient, account: str) -> None:
+    import asyncio
+
+    from app.services.billing import deduct_credits
+    from app.services.report_store import count_reports
+
+    asyncio.run(deduct_credits(account, STARTING_CREDITS))
+    client.post("/v1/reports", json={})
+
+    assert asyncio.run(count_reports()) == 0, "an unpaid request must not queue work"
+
+
+def test_402_publishes_no_goal(client: TestClient, account: str, published: list) -> None:
+    import asyncio
+
+    from app.services.billing import deduct_credits
+
+    asyncio.run(deduct_credits(account, STARTING_CREDITS))
+    client.post("/v1/reports", json={})
+
+    assert published == [], "an unpaid request must not reach the agent lane"
+
+
+def test_reading_endpoints_are_free(client: TestClient, account: str) -> None:
+    """Only report generation is metered in P2.1."""
+    before = _balance(account)
+
+    client.get("/v1/opportunities")
+    client.post("/v1/landed-cost", json=VALID_LANDED_COST)
+    client.get("/v1/reports/R-nothing")
+
+    assert _balance(account) == before
+
+
+def test_failed_publish_refunds_the_credit(
+    client: TestClient, account: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broker outage must not cost the customer a credit."""
+    from app.services import kafka_publisher
+
+    async def boom(event, topic=kafka_publisher.GOALS_TOPIC):
+        raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr(kafka_publisher, "publish_goal", boom)
+    before = _balance(account)
+
+    assert client.post("/v1/reports", json={}).status_code == 503
+
+    assert _balance(account) == before, "the credit should have been refunded"
+
+
+def test_accounts_are_isolated(client: TestClient, account: str) -> None:
+    """Spending on one account must not touch another."""
+    import asyncio
+
+    from app.services.auth import issue_api_key
+    from app.services.billing import create_account, get_balance
+
+    asyncio.run(create_account("acct-other", 5))
+    other_key, _ = asyncio.run(issue_api_key("acct-other"))
+
+    client.post("/v1/reports", json={})
+
+    assert asyncio.run(get_balance("acct-other")) == 5

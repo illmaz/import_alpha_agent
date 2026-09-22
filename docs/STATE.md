@@ -2,9 +2,9 @@
 
 ## Phase
 
-P1 in progress — the API and the agent lane are one system, every report
-terminates, and the stack is **ready for the first live LLM run**. Data is
-still curated, not sourced.
+P2 started — the API is no longer open. Every `/v1` route needs an API key,
+and report generation is charged against a prepaid credit balance. The first
+live LLM run is done; data is still curated, not sourced.
 
 ## Completed
 
@@ -255,23 +255,57 @@ One goal is two model calls (one plan, one synthesis) — cents, not free. The
 script confirms before spending and prints how to revert to FakeLLM.
 
 
+**P2.1 (API key auth + prepaid credit ledger) — FINISHED 2026-09-22.**
+
+- Added `ApiKey` and `CreditAccount` to app/models.py. Keys are stored as
+  SHA-256 hashes only; plaintext is shown once at issuance and never
+  persisted.
+- Added `app/services/auth.py`: `generate_api_key()` (32 bytes from
+  `secrets.token_urlsafe`, `ia_` prefix), `hash_api_key()`,
+  `verify_api_key()`, plus issue/revoke/list.
+  **SHA-256, not bcrypt** — these are 256-bit machine-generated secrets, not
+  passwords; bcrypt would cost ~100ms per request and buy nothing. See
+  DECISIONS.md.
+- Added `app/services/billing.py`: integer balances, 1 credit = 1 report.
+  **Deduction is a single conditional UPDATE** (`WHERE balance >= :n`), so two
+  concurrent requests cannot both spend the last credit. A test proves it.
+- Added `get_current_account` dependency, declared **on the router** so new
+  endpoints are authenticated by default. All four `/v1` routes require
+  `Authorization: Bearer <key>`; `/health` stays public.
+- `POST /v1/reports` deducts 1 credit before publishing the goal, answers
+  **402** with the current balance when short, and **refunds** if publishing
+  then fails.
+- Added `scripts/manage_accounts.py`: create-account, issue-key, add-credits,
+  balance, list-accounts, list-keys, revoke-key.
+- Added tests/test_auth.py (25) and tests/test_billing.py (23); test_api.py
+  grew to 53 with 401/402 coverage. conftest now wipes accounts and keys too.
+  **270 tests pass**, host and in-container.
+- **Verified live**: no key -> 401; account created with 2 credits; two
+  reports -> 202 and balance 2 -> 1 -> 0; third -> 402 with
+  `"a report costs 1 and your balance is 0"`; top-up -> 5, spend -> 4. A paid
+  report settled through the agent lane to `ready`.
+
+**Known gap:** a report failed by the *reaper* is not refunded — the customer
+paid and got nothing. Reports carry no `account_id`, so the reaper cannot tell
+whom to credit. On the backlog as the first P2.2 item.
+
+
 ## In Progress
 
-- P1 product core. Parts 1-4.5 are done and awaiting review. P1 Part 4.5
-  files are written but **not yet committed**.
-- The first live LLM run is prepared but **deliberately not run** — it needs
-  a real key and human approval to spend.
+- P2 monetization. P2.1 (auth + credits) is done and awaiting review.
+  Stripe, metering and x402 are not started.
 
 ## Next Actions
 
-1. **First live LLM run** — `./scripts/live_demo.sh` with a real key. This is
-   the next thing to do and the first real spend on the project
+1. **Refund reaped reports.** A report failed with `agent_lane_timeout` keeps
+   the customer's credit. Needs `account_id` on the report row, which is also
+   what usage metering and per-account listing will need
 2. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`
-3. Alembic, before the first schema change to a table holding real rows
-4. Move the database off the bind mount (named volume, then Postgres). SQLite
-   on a bind mount has already cost us WAL
-5. Persist the agent lane's tasks/events/artifacts — only reports are stored
+3. Stripe Checkout for credit purchases (P2.2)
+4. Alembic — now overdue. Three tables exist and `create_all` will silently
+   ignore the first column change to a populated one
+5. Move the database off the bind mount (named volume, then Postgres)
 6. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
 7. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)

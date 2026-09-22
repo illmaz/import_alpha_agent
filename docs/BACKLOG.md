@@ -76,9 +76,14 @@
 
 ## P2 — Monetization
 
-- [ ] Add API key auth + prepaid credit ledger
+- [x] Add API key auth (SHA-256 hashed keys, Bearer header, 401)
+- [x] Add prepaid credit ledger (integer balances, atomic deduction)
+- [x] 402-on-empty-balance for POST /v1/reports
+- [x] Add scripts/manage_accounts.py (create/issue/top-up/revoke)
+- [ ] **Refund credits for reports the reaper fails** — needs account_id on
+      the report row; the customer currently pays for lane timeouts
 - [ ] Add Stripe Checkout for credit purchases
-- [ ] Add usage metering + 402-on-empty-balance
+- [ ] Add usage metering (per-account request/spend history)
 - [ ] Add x402 sandbox payment challenge (testnet only)
 
 ## P3 — Growth

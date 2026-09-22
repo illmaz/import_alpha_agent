@@ -41,10 +41,22 @@ def test_database(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
 
 @pytest.fixture(autouse=True)
-def clean_reports(test_database: Path) -> Iterator[None]:
-    """Empty the reports table around each test so ids cannot leak between them."""
+def clean_tables(test_database: Path) -> Iterator[None]:
+    """Empty every table around each test.
+
+    Accounts and keys leak between tests as readily as reports do — a test
+    that creates "acct-1" would collide with the next one that does, and a
+    listing test would see rows it never made.
+    """
+    from app.services.auth import clear_api_keys
+    from app.services.billing import clear_accounts
     from app.services.report_store import clear_reports
 
-    asyncio.run(clear_reports())
+    async def _wipe() -> None:
+        await clear_reports()
+        await clear_api_keys()
+        await clear_accounts()
+
+    asyncio.run(_wipe())
     yield
-    asyncio.run(clear_reports())
+    asyncio.run(_wipe())

@@ -182,8 +182,17 @@ def test_reaped_report_is_still_readable_over_http() -> None:
     report_id = make_report(STATUS_PENDING, age_seconds=STALE)
     run(report_reaper.reap_once())
 
+    # /v1 requires a key since P2.1; reading a report is not metered.
+    from app.services.auth import issue_api_key
+    from app.services.billing import create_account
+
+    run(create_account("acct-reaper", 0))
+    key, _ = run(issue_api_key("acct-reaper"))
+
     with TestClient(app) as client:
-        response = client.get(f"/v1/reports/{report_id}")
+        response = client.get(
+            f"/v1/reports/{report_id}", headers={"Authorization": f"Bearer {key}"}
+        )
 
     assert response.status_code == 200
     assert response.json()["report_status"] == "failed"

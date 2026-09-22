@@ -3,6 +3,93 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P2.1 — API key auth and prepaid credits (2026-09-22)
+
+### SHA-256, not bcrypt, because these keys are not passwords
+
+bcrypt exists to make *low-entropy human passwords* expensive to brute-force.
+API keys here are 32 bytes from `secrets.token_urlsafe` — 256 bits, not
+brute-forceable at any hash speed. bcrypt would add a deliberate ~100ms cost
+to **every authenticated request** and buy nothing.
+
+A fast hash over a high-entropy secret is the correct construction. The
+reasoning depends entirely on the entropy assumption: if a user-chosen key is
+ever accepted, this must become a slow hash. That condition is written at the
+top of `app/services/auth.py` so it is seen by whoever would break it.
+
+Plaintext is never stored. It is printed once at issuance and cannot be
+recovered — a lost key is replaced, not looked up.
+
+### Deduction is one conditional UPDATE, not read-modify-write
+
+    UPDATE credit_accounts SET balance = balance - :n
+     WHERE account_id = :id AND balance >= :n
+
+with the outcome read from the row count. The obvious implementation — read
+the balance, compare in Python, write the new value — has a race: two
+concurrent requests both read balance 1, both decide they can afford it, both
+write 0, and the customer gets two reports for one credit. Putting the
+comparison in the WHERE clause makes check-and-write a single atomic
+statement.
+
+`test_concurrent_deductions_cannot_oversell` runs both deductions through
+`asyncio.gather` and asserts exactly one succeeds.
+
+`deduct_credits` returning False is the *only* signal for "cannot pay". A
+caller must not re-read the balance to decide, or the race comes straight
+back.
+
+### Balances are integers
+
+A money-like quantity must never accumulate binary rounding error. 1 credit =
+1 report, so there is nothing to represent fractionally yet — and when
+fractional pricing arrives the answer is smaller integer units, not floats.
+
+### The auth dependency is declared on the router
+
+`APIRouter(dependencies=[Depends(get_current_account)])` rather than
+per-endpoint. A new endpoint is then authenticated by default and has to opt
+*out* explicitly. The mistake that direction produces is a public endpoint
+that 401s; the other direction produces an unauthenticated data leak.
+
+`HTTPBearer(auto_error=False)` so a missing header reaches our handler: the
+default emits a bare 403 for "no header", which tells a caller the wrong
+thing. Missing, malformed, unknown and revoked keys all return the same 401 —
+distinguishing them helps nobody but someone probing for valid keys.
+
+`/health` stays public. A liveness probe must not need a credential.
+
+### The credit is taken before the goal is published, and refunded on failure
+
+Deducting first means a caller cannot queue work it has not paid for. But the
+publish can still fail (broker down), and the customer should not pay for our
+outage — so that path refunds before returning 503.
+
+`refund_credits` is deliberately a separate function from `add_credits`
+although the mechanics are identical: at the call site and in a future ledger,
+a refund is not a purchase.
+
+**Known gap, not built:** a report the *reaper* fails (`agent_lane_timeout`)
+is **not** refunded. The customer paid, the lane never delivered, and the
+credit is gone. That is wrong, and it is on the backlog. It was left out
+because doing it properly means the reaper needs to know which account owns a
+report — reports carry no account_id yet — and bolting on a lookup would be
+worse than the explicit gap.
+
+### Only report generation is metered
+
+`GET /v1/opportunities`, `POST /v1/landed-cost` and `GET /v1/reports/{id}`
+require a key but cost nothing. They are cheap, deterministic and read-only;
+metering them would punish polling, and the poll loop is how a caller collects
+the report they already paid for.
+
+### Accounts and keys are wiped between tests
+
+`tests/conftest.py` now clears `api_keys` and `credit_accounts` as well as
+`reports`. Accounts leak between tests exactly as readily as report ids do —
+this surfaced immediately as `account 'acct-7' already exists` in a
+parametrized case.
+
 ## P1 Part 4.5 — Report reaper and live-run prep (2026-09-22)
 
 ### The liveness invariant now covers reports
