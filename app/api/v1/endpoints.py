@@ -22,7 +22,7 @@ from app.schemas import (
 )
 from app.services.data_loader import load_opportunities
 from app.services.landed_cost import estimate_landed_cost
-from app.services import report_store
+from app.services import kafka_publisher, report_store
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
@@ -104,13 +104,15 @@ def estimate_landed_cost_endpoint(payload: LandedCostRequest) -> LandedCostRespo
     summary="Request a product viability report",
 )
 async def create_report(payload: ReportRequest) -> ReportResponse:
-    """Generate and persist a report synchronously, but answer 202.
+    """Accept the request, persist it as pending, and hand it to the agent lane.
 
-    The row is inserted as `pending` before the body is built, so a crash
-    during generation leaves a visible pending report rather than nothing.
+    The response is the pending report, not the finished one: generation now
+    happens asynchronously on Kafka and completes when report_listener sees
+    `goal.completed`. Poll GET /v1/reports/{id}, which answers 409 until then.
 
-    The 202 is forward-looking: generation moves onto the Kafka lane later, and
-    callers that already poll GET /v1/reports/{id} will not need to change.
+    The curated opportunities are computed and stored up front so the row is
+    never an empty shell, and so a caller can see what the report will contain
+    while the lane works on the narrative summary.
     """
     report_id = report_store.new_report_id()
     await report_store.create_report(report_id)
@@ -118,22 +120,48 @@ async def create_report(payload: ReportRequest) -> ReportResponse:
     items = load_opportunities()[: payload.max_products]
     report = ReportResponse(
         report_id=report_id,
-        report_status=ReportStatus.READY,
+        report_status=ReportStatus.PENDING,
         category=payload.category,
         query=payload.query,
         opportunities=items,
         summary=(
             f"{len(items)} curated {payload.category} opportunities scored by the "
-            f"deterministic engine. Curated synthetic inputs: no datapoint here "
-            f"was observed from a marketplace, supplier or customs source."
+            f"deterministic engine. Awaiting the agent lane's synthesis. Curated "
+            f"synthetic inputs: no datapoint here was observed from a marketplace, "
+            f"supplier or customs source."
         ),
         risk_flags=[RiskFlag.LOW_DATA],
         confidence_score=0.25,
         status=ResultStatus.CURATED,
     )
     await report_store.update_report(
-        report_id, report_store.STATUS_READY, report.model_dump(mode="json")
+        report_id, report_store.STATUS_PENDING, report.model_dump(mode="json")
     )
+
+    goal_text = (
+        payload.query
+        or f"Produce a product viability report for the {payload.category} category."
+    )
+    try:
+        await kafka_publisher.publish_goal(
+            kafka_publisher.build_goal_event(
+                report_id=report_id,
+                goal_text=goal_text,
+                category=payload.category,
+                max_products=payload.max_products,
+            )
+        )
+    except Exception as exc:  # broker down or unreachable
+        # Without a published goal nothing will ever complete this report, so
+        # it is marked failed now rather than left pending forever.
+        await report_store.update_report(
+            report_id, report_store.STATUS_FAILED, report.model_dump(mode="json")
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not queue report {report_id!r} for generation: {exc}",
+        ) from exc
+
     return report
 
 
@@ -144,7 +172,12 @@ async def create_report(payload: ReportRequest) -> ReportResponse:
     summary="Fetch a previously requested report",
 )
 async def get_report(report_id: str) -> ReportResponse:
-    """404s on an unknown id; 409s while a report is still being generated."""
+    """404 unknown, 409 while the agent lane is still working, 200 once settled.
+
+    A caller polling for completion has to be able to tell "not ready yet" from
+    "wrong id"; collapsing both into 404 would make a poller give up on a
+    report that was about to arrive.
+    """
     row = await report_store.get_report(report_id)
     if row is None:
         raise HTTPException(
@@ -152,13 +185,19 @@ async def get_report(report_id: str) -> ReportResponse:
             detail=f"No report {report_id!r}.",
         )
 
-    report = await report_store.get_report_response(report_id)
-    if report is None:
-        # The row exists but has no body yet. That is a different answer from
-        # "no such report", and a caller polling for completion needs to be
-        # able to tell them apart.
+    if row.status == report_store.STATUS_PENDING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Report {report_id!r} is {row.status}; no body available yet.",
+            detail=(
+                f"Report {report_id!r} is pending: the agent lane has not "
+                f"reported back yet."
+            ),
+        )
+
+    report = await report_store.get_report_response(report_id)
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Report {report_id!r} is {row.status} with no stored body.",
         )
     return report

@@ -66,7 +66,11 @@
 - [ ] Add Alembic before the first schema change to a populated table
 - [ ] Replace curated fixture with sourced data (`status="curated"` -> `"ok"`)
 - [ ] Revisit margin saturation — currently flat across all 20 products
-- [ ] Wire POST /v1/reports to the Kafka lane
+- [x] Wire POST /v1/reports to the Kafka lane (`app/services/kafka_publisher.py`)
+- [x] Add report_listener daemon settling rows from `goal.completed`
+- [x] Tests: listener + publisher, broker never touched (186 total)
+- [ ] Reap stale pending reports if the agent lane never reports back
+- [ ] Move the SQLite file off the bind mount (named volume, then Postgres)
 
 ## P2 — Monetization
 

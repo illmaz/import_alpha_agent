@@ -30,6 +30,18 @@ DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./data/reports.db"
 # the difference between a slow request and a 500 under light concurrency.
 BUSY_TIMEOUT_SECONDS = 5.0
 
+# Journal mode. DELETE (the SQLite default) rather than WAL, because the
+# database lives on a bind-mounted host directory and is opened by more than
+# one container. WAL coordinates readers and writers through a shared-memory
+# `-shm` file, and that coordination is not reliable across a macOS bind
+# mount: it worked for a single process and started returning
+# "disk I/O error" as soon as report_listener opened the same file.
+#
+# DELETE uses ordinary POSIX locks, which the bind mount does handle. Set
+# SQLITE_JOURNAL_MODE=WAL where the file is on a real local filesystem (a
+# Docker named volume, or native Linux) to get WAL's better read concurrency.
+JOURNAL_MODE = os.environ.get("SQLITE_JOURNAL_MODE", "DELETE")
+
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
@@ -102,10 +114,10 @@ async def init_models() -> None:
 
     engine = get_engine()
     async with engine.begin() as connection:
-        # WAL lets readers proceed while a writer holds the lock. Persistent
-        # per database file, but set on every startup because a fresh file
-        # defaults back to rollback-journal mode.
-        await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+        # Journal mode is persistent per database file, but is set on every
+        # startup so a file created elsewhere still ends up in the mode this
+        # deployment expects.
+        await connection.exec_driver_sql(f"PRAGMA journal_mode={JOURNAL_MODE}")
         await connection.run_sync(Base.metadata.create_all)
 
 

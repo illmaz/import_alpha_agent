@@ -7,6 +7,8 @@ importantly — that nothing curated can present itself as observed.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -25,6 +27,41 @@ def client() -> TestClient:
     # the temporary database configured in conftest.
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def published(monkeypatch: pytest.MonkeyPatch) -> list:
+    """Capture goal events instead of publishing them.
+
+    No test may touch a real broker: the suite has to run with nothing else
+    up, and a test that silently published would be invisible until CI had no
+    Kafka.
+    """
+    from app.services import kafka_publisher
+
+    captured: list = []
+
+    async def fake_publish(event, topic=kafka_publisher.GOALS_TOPIC):
+        captured.append((topic, event))
+
+    monkeypatch.setattr(kafka_publisher, "publish_goal", fake_publish)
+    return captured
+
+
+def settle_report(report_id: str, summary: str = "Synthesis from the agent lane.") -> None:
+    """Simulate the agent lane completing a goal, as report_listener would."""
+    import asyncio
+
+    from app.services.report_store import STATUS_READY, get_report, update_report
+
+    async def _run() -> None:
+        row = await get_report(report_id)
+        payload = json.loads(row.payload_json)
+        payload["report_status"] = "ready"
+        payload["summary"] = summary
+        await update_report(report_id, STATUS_READY, payload)
+
+    asyncio.run(_run())
 
 
 VALID_LANDED_COST = {
@@ -150,16 +187,61 @@ def test_landed_cost_rejects_invalid_requests(client: TestClient, bad_payload: d
 # --- POST /v1/reports -----------------------------------------------------
 
 
-def test_create_report_returns_202_with_scored_opportunities(client: TestClient) -> None:
+def test_create_report_returns_202_pending_with_scored_opportunities(
+    client: TestClient,
+) -> None:
     response = client.post("/v1/reports", json={"category": "home_organization"})
     assert response.status_code == 202
 
     parsed = ReportResponse.model_validate(response.json())
     assert parsed.report_id.startswith("R-")
-    assert parsed.report_status.value == "ready"
+    # Pending, not ready: the agent lane settles it asynchronously now.
+    assert parsed.report_status.value == "pending"
     assert parsed.status is ResultStatus.CURATED
     assert len(parsed.opportunities) == 20
     assert parsed.summary
+
+
+def test_create_report_publishes_a_goal_keyed_by_report_id(
+    client: TestClient, published: list
+) -> None:
+    """The report_id must ride on task_id, or the lane can never settle the row.
+
+    The orchestrator adopts task_id as its goal_id and echoes that; it does
+    not echo the payload. A report_id that lived only in the payload would
+    never come back.
+    """
+    created = client.post("/v1/reports", json={"query": "cable management"}).json()
+
+    assert len(published) == 1
+    topic, event = published[0]
+    assert topic == "user.goals"
+    assert event.task_id == created["report_id"]
+    assert event.payload["report_id"] == created["report_id"]
+    assert event.payload["goal"] == "cable management"
+
+
+def test_failed_publish_marks_the_report_failed_and_returns_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A report nothing will ever generate must not be left pending."""
+    import asyncio
+
+    from app.services import kafka_publisher
+    from app.services.report_store import STATUS_FAILED, get_report, list_reports
+
+    async def boom(event, topic=kafka_publisher.GOALS_TOPIC):
+        raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr(kafka_publisher, "publish_goal", boom)
+
+    response = client.post("/v1/reports", json={})
+    assert response.status_code == 503
+    assert "broker unreachable" in response.json()["detail"]
+
+    rows = asyncio.run(list_reports())
+    assert len(rows) == 1
+    assert rows[0].status == STATUS_FAILED
 
 
 def test_create_report_honours_max_products(client: TestClient) -> None:
@@ -181,15 +263,22 @@ def test_create_report_rejects_out_of_range_max_products(client: TestClient) -> 
 # --- GET /v1/reports/{report_id} ------------------------------------------
 
 
-def test_created_report_can_be_fetched_back(client: TestClient) -> None:
+def test_report_is_409_until_the_lane_settles_it(client: TestClient) -> None:
     created = client.post("/v1/reports", json={"query": "under-sink"}).json()
+    report_id = created["report_id"]
 
-    response = client.get(f"/v1/reports/{created['report_id']}")
+    pending = client.get(f"/v1/reports/{report_id}")
+    assert pending.status_code == 409
+    assert "pending" in pending.json()["detail"]
+
+    settle_report(report_id)
+
+    response = client.get(f"/v1/reports/{report_id}")
     assert response.status_code == 200
-
     fetched = ReportResponse.model_validate(response.json())
-    assert fetched.report_id == created["report_id"]
+    assert fetched.report_id == report_id
     assert fetched.query == "under-sink"
+    assert fetched.report_status.value == "ready"
     assert len(fetched.opportunities) == len(created["opportunities"])
 
 
@@ -225,6 +314,7 @@ def test_no_endpoint_presents_curated_data_as_observed(client: TestClient) -> No
     reader could mistake for a verifiable observation.
     """
     created = client.post("/v1/reports", json={}).json()
+    settle_report(created["report_id"])
     bodies = [
         client.get("/v1/opportunities", params={"limit": 100}).json(),
         client.post("/v1/landed-cost", json=VALID_LANDED_COST).json(),
@@ -263,6 +353,7 @@ def test_report_survives_a_process_restart(client: TestClient) -> None:
 
     created = client.post("/v1/reports", json={"max_products": 4}).json()
     report_id = created["report_id"]
+    settle_report(report_id)
 
     asyncio.run(reset_engine())
     asyncio.run(init_models())
@@ -279,14 +370,17 @@ def test_report_row_is_written_to_sqlite(client: TestClient) -> None:
     """POST must leave a durable row, not just return a body."""
     import asyncio
 
-    from app.services.report_store import STATUS_READY, get_report
+    from app.services.report_store import STATUS_PENDING, get_report
 
     created = client.post("/v1/reports", json={"max_products": 2}).json()
 
     row = asyncio.run(get_report(created["report_id"]))
     assert row is not None
-    assert row.status == STATUS_READY
+    # Pending until the listener settles it, but the body is already stored so
+    # the row is never an empty shell.
+    assert row.status == STATUS_PENDING
     assert row.created_at is not None
+    assert json.loads(row.payload_json)["report_id"] == created["report_id"]
 
 
 def test_pending_report_returns_409_not_404(client: TestClient) -> None:

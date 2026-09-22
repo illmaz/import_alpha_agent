@@ -3,6 +3,88 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P1 Part 4 — API wired to the agent lane (2026-09-22)
+
+### report_id rides on task_id, not in the payload
+
+The task brief put `report_id` in the `user.goals` payload. That alone could
+never have worked: `orchestrator._complete` builds a **fresh** payload for
+`goal.completed` (`goal_id`, `goal`, `steps_completed`, `summary`) and does not
+echo the payload it received. A report_id living only in the payload would be
+dropped the moment the orchestrator planned the goal.
+
+What the orchestrator *does* echo is the id it adopted:
+`handle_goal` takes `goal_id = event.task_id or <generated>`, and that goal_id
+appears on both `goal.completed` and `human.approval.required`. So the API
+publishes with `task_id=report_id`, the orchestrator adopts it as its goal_id,
+and it comes back on both outcome topics.
+
+This needed **no change to the orchestrator**, and it mirrors the existing
+decision that step completion is correlated by task_id rather than goal_id.
+The report_id is still written into the payload as the brief asked, for any
+consumer reading the goal event directly, and the listener prefers it when
+present — but the working correlation is the task_id.
+
+Consequence worth knowing: goal ids for API-raised goals are `R-` prefixed,
+not `G-`. Step ids read `R-7c155375-S1`.
+
+### POST stores the body up front, and the lane only adds the summary
+
+`POST /v1/reports` computes the curated opportunities, stores them with
+`status=pending`, publishes the goal, and returns 202. The listener later sets
+`status=ready` and overwrites `summary` with the lane's synthesis.
+
+The row is therefore never an empty shell, and a caller can see what the
+report will contain while the lane works. It also means the scoring engine
+stays on the API side where it is unit-tested, rather than being duplicated
+into the listener.
+
+**This is a real behaviour change:** before Part 4, POST returned a finished
+report. Now a report is not readable until the agent lane settles it, which
+takes ~10-30s with goals processed serially. If the lane is down, reports stay
+pending indefinitely — nothing reaps them. A TTL-based sweep that fails
+long-pending reports is the obvious next guard and is not built.
+
+### A failed publish fails the report immediately
+
+If the broker is unreachable, `POST` marks the row `failed` and returns 503
+rather than leaving a pending row that nothing will ever complete. This is the
+one piece of error handling deliberately added beyond "keep it simple", for
+the same reason as the liveness invariant: no record may sit pending forever
+with nothing that ends it.
+
+### WAL does not work on a macOS bind mount with two processes
+
+Found live, not reasoned about. With `report_listener` added, the second
+process to open `./data/reports.db` started failing every INSERT with
+`sqlite3.OperationalError: disk I/O error`. The first report of a fresh stack
+succeeded; everything after it 500'd.
+
+WAL coordinates readers and writers through a shared-memory `-shm` file and
+requires working mmap plus POSIX locking on the database's directory. Docker
+Desktop's bind mount does not provide that reliably, and the failure only
+appears once a *second* process joins — which is exactly what Part 4 added.
+
+`JOURNAL_MODE` now defaults to `DELETE`, which uses ordinary POSIX locks the
+bind mount does handle. Three back-to-back POSTs and three concurrent goals
+settled cleanly afterwards. Set `SQLITE_JOURNAL_MODE=WAL` where the file is on
+a real local filesystem (a Docker named volume, or native Linux) to get WAL's
+better read concurrency back.
+
+The broader lesson: SQLite on a bind mount is a development convenience, not a
+deployment posture. The Postgres move in CONTEXT.md is the real answer.
+
+### The listener drops bad events rather than crashing
+
+`handle()` catches everything around the database write and logs it. One
+malformed or unsettleable event must not stop every later report from
+settling. There is no retry and no dead-letter queue yet, so a dropped event
+means a report stays pending — acceptable while generation is idempotent and
+re-submittable, and the first thing to revisit when it is not.
+
+Goals submitted from the CLI share these topics and have no report row; the
+listener logs and skips them, which is normal traffic rather than an error.
+
 ## P1 Part 3 — SQLite persistence (2026-09-22)
 
 ### create_all is a deliberate short-term choice with a hard expiry
@@ -44,14 +126,15 @@ into 404 would make a poller give up on a report that was about to arrive.
 Updating an id that is not there is a bug in the caller, and a silent no-op
 would strand the report as `pending` forever with nothing to indicate why.
 
-### WAL mode and a busy timeout
+### WAL mode and a busy timeout — SUPERSEDED in P1 Part 4
 
-`PRAGMA journal_mode=WAL` lets readers proceed while a writer holds the lock,
-and a 5s busy timeout makes a competing writer wait rather than fail
-immediately with "database is locked". SQLite still serialises writers; this
-turns light write contention into slightly slower requests instead of 500s.
-It does not make SQLite a concurrent-write database, and that limit is the
-first thing to outgrow when write traffic is real.
+*Originally:* `PRAGMA journal_mode=WAL` plus a 5s busy timeout, so readers
+proceed while a writer holds the lock and a competing writer waits rather than
+failing with "database is locked".
+
+The busy timeout stands. **WAL did not survive a second process opening the
+same bind-mounted file** — see "WAL does not work on a macOS bind mount" under
+P1 Part 4. The default is now DELETE.
 
 ### Tests use a temporary SQLite file, never :memory:
 

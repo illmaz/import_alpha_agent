@@ -92,6 +92,14 @@ services:
     container_name: importalpha-artifact-logger
     command: python artifact_logger.py
 
+  # Settles report rows when the agent lane finishes a goal. Shares the
+  # ./data mount with fastapi (via the shared anchor) so both processes open
+  # the same SQLite file.
+  report_listener:
+    <<: *app
+    container_name: importalpha-report-listener
+    command: python scripts/report_listener.py
+
   fastapi:
     <<: *app
     container_name: importalpha-api

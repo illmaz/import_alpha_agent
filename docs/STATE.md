@@ -2,8 +2,9 @@
 
 ## Phase
 
-P1 in progress — scoring, curated fixtures, landed cost and SQLite-persisted
-reports are live behind the API. Data is still curated, not sourced.
+P1 in progress — the API and the agent lane are now one system: a report
+request becomes a Kafka goal and is settled by a listener. Data is still
+curated, not sourced.
 
 ## Completed
 
@@ -178,26 +179,60 @@ reports are live behind the API. Data is still curated, not sourced.
   `ix_reports_status` present.
 
 
+**P1 Part 4 (API wired to the Kafka orchestrator) — FINISHED 2026-09-22.**
+
+- Added `UserGoalPayload` to app/schemas.py (goal, report_id, category,
+  max_products).
+- Added `app/services/kafka_publisher.py`: builds the `user.goals` event and
+  publishes via `asyncio.to_thread`, so `bus.produce`'s blocking `flush()`
+  never stalls the FastAPI event loop.
+- **Correlation rides on `task_id`, not the payload.** The orchestrator builds
+  a fresh payload for `goal.completed` and does not echo the one it received,
+  so a report_id in the payload alone would vanish. It does adopt
+  `event.task_id` as its `goal_id` and echoes that on both outcome topics.
+  Needed no orchestrator change. See DECISIONS.md.
+- Added `scripts/report_listener.py`: consumes `goal.completed` ->
+  `status=ready` with the lane's synthesis, and `human.approval.required` ->
+  `status=failed` with the reason. Bad events are logged and dropped so one
+  cannot stop every later report from settling. CLI goals have no report row
+  and are skipped.
+- `POST /v1/reports` now stores the curated body as `pending`, publishes the
+  goal, returns 202. A failed publish marks the row `failed` and returns 503
+  rather than leaving it pending forever.
+- `GET /v1/reports/{id}`: 404 unknown, 409 pending, 200 once settled.
+- Added `report_listener` service to docker-compose.yml — **9 services**.
+- **Switched SQLite journal mode from WAL to DELETE.** WAL broke as soon as a
+  second process opened the bind-mounted database: every INSERT failed with
+  `disk I/O error`. `SQLITE_JOURNAL_MODE` overrides it. See DECISIONS.md.
+- **186 tests pass** (was 159): +16 listener, +9 publisher, +2 API. The suite
+  never touches a broker — `publish_goal` is monkeypatched.
+- **Verified live end to end**: POST -> 202 pending -> orchestrator planned and
+  dispatched 2 steps -> workers produced artifacts -> `goal.completed` ->
+  listener wrote `ready` -> GET returned 200 with the lane's synthesis. Three
+  concurrent reports all settled correctly; DB rows confirmed with distinct
+  created/updated timestamps.
+
+
 ## In Progress
 
-- P1 product core. Parts 1-3 are done and awaiting review. P1 Part 3 files
+- P1 product core. Parts 1-4 are done and awaiting review. P1 Part 4 files
   are written but **not yet committed**.
 
 ## Next Actions
 
-1. Replace the curated fixture with sourced data — still the single change
+1. Reap stale pending reports. If the agent lane is down, a report stays
+   pending forever and nothing ends it — the same liveness hole Phase 2.5
+   closed for goals, now reopened one level up
+2. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`
-2. Alembic, before the first schema change to a table holding real rows.
-   `create_all` adds missing tables and will not alter an existing one, so a
-   changed column will silently do nothing (see DECISIONS.md)
-3. Persist the agent lane's tasks/events/artifacts to the same database — the
-   backlog item named the full state store and only reports are done
-4. Wire `POST /v1/reports` to the Kafka lane so generation is genuinely async
-   (the 202 and the pending row are already shaped for it)
-5. Revisit margin weighting: every product clears the 60% saturation cap, so
+3. Alembic, before the first schema change to a table holding real rows
+4. Move the database off the bind mount (named volume, then Postgres). SQLite
+   on a bind mount cost us WAL already; it is a dev convenience, not a
+   deployment posture
+5. Persist the agent lane's tasks/events/artifacts — only reports are stored
+6. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
-6. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
-7. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
+7. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
 
 ## Blocked
 

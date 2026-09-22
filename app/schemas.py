@@ -207,6 +207,27 @@ class ReportResponse(BaseModel):
     created_at: str = Field(default_factory=_utc_now_iso)
 
 
+class UserGoalPayload(BaseModel):
+    """Payload of a `user.goals` event published by the API.
+
+    `report_id` is carried here for any downstream consumer that reads the
+    goal event directly. It is NOT how the report is correlated on the way
+    back: the orchestrator builds a fresh payload for `goal.completed` and
+    does not echo this one. Correlation rides on the event's `task_id`, which
+    the orchestrator adopts as its `goal_id` and does echo. See
+    app/services/kafka_publisher.py and docs/DECISIONS.md.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=1, description="Plain-text goal for the planner.")
+    report_id: Optional[str] = Field(
+        default=None, description="Report this goal was raised for, if any."
+    )
+    category: Optional[str] = None
+    max_products: Optional[int] = Field(default=None, gt=0, le=100)
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
