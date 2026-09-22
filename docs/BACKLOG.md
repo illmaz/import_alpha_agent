@@ -35,6 +35,16 @@
 - [x] Tests with an injectable fake clock (no sleeping in tests)
 - [ ] Worker heartbeats — the TTL cannot tell a slow step from a dead worker
 
+## Phase 3 — Dockerized run lane (done)
+
+- [x] Make `bus.BOOTSTRAP_SERVERS` env-configurable
+- [x] Add Dockerfile (python:3.12-slim) + .dockerignore
+- [x] Rewrite docker-compose.yml: 7 background services + profile-gated `cli`
+- [x] Add .env.example; keep `.env` untracked
+- [x] Acceptance: 49 tests, clean `up --build -d`, goal end to end in Docker
+- [x] Acceptance: broker-resilience check (kill kafka, 15s, restart, new goal)
+- [ ] Optional: second host-facing listener so host-side submit_goal.py works
+
 ## P1 — Product core
 
 - [ ] Add SQLite state store (tasks, events, artifacts)

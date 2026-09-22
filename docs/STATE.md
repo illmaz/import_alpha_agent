@@ -2,7 +2,7 @@
 
 ## Phase
 
-Initial setup — repo, context docs, Python/Kafka agentic workflow skeleton.
+Phase 3 complete — the whole agent lane runs in Docker. Next up is P1 (product core).
 
 ## Completed
 
@@ -50,14 +50,45 @@ Initial setup — repo, context docs, Python/Kafka agentic workflow skeleton.
 - Added tests/test_liveness.py and tests/helpers.py (shared offline doubles); **49 tests pass**
 - **Verified live**: happy path completed with all three workers running; with the product worker deliberately absent, a goal stalled, replanned once, stalled again and escalated — `human.approval.required` confirmed on the topic with `reason=step_stalled`
 
+**Phase 3 (dockerized run lane) — FINISHED 2026-09-22.**
+
+- Rebuilt from scratch on main's sync architecture at commit `5374037`. The
+  earlier Qwen-built Phase 3 (PR #1, branch `qwen-coder-vs-code-connection-fix-bc4eb`,
+  commit `407f1e7`) was **discarded, not merged** — it branched from `30c759c`,
+  predating Phases 1/2/2.5, and targeted an async `Bus` class that does not
+  exist here. See DECISIONS.md.
+- Made `bus.BOOTSTRAP_SERVERS` env-configurable
+  (`os.environ.get("BOOTSTRAP_SERVERS", "localhost:9092")`). This is the only
+  Python change in Phase 3; no daemon or worker logic was touched.
+- Added Dockerfile (python:3.12-slim, `WORKDIR /app`, requirements installed
+  before the code copy so edits do not bust the pip layer) and .dockerignore.
+- Rewrote docker-compose.yml: 7 background services (kafka, orchestrator,
+  router, product_worker, engineering_worker, landing_worker, artifact_logger)
+  plus a `cli` one-shot behind `profiles: ["cli"]`.
+- Added .env.example (LLM_PROVIDER, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL,
+  STEP_TTL_SECONDS, STALL_TICK_SECONDS, ACTIVE_ROLES); `.env` added to
+  .gitignore and left untracked.
+- **Verified live in Docker**: 49/49 tests pass; all 7 services up with
+  RestartCount 0; goal `G-1cc988fd` ("sync check") planned into 2 steps, both
+  routed, worked and logged, `goal.completed` published.
+- **Broker-resilience check PASSED**: `docker compose kill kafka`, 15s outage,
+  `docker compose up -d kafka`. No app container restarted (RestartCount stayed
+  0 on all six). Goal `G-6e76ea44` submitted after the outage completed end to
+  end with no duplicate dispatches. Recovery is not instant — librdkafka takes
+  a ~45s consumer-group session timeout and rebalance before goals flow again.
+
 ## In Progress
 
-- None — Phase 2.5 is complete and awaiting review
+- None — Phase 3 is complete and awaiting review. The Phase 3 files are
+  written but **not yet committed**.
 
 ## Next Actions
 
-1. P1 (Product core): SQLite state store, FastAPI skeleton, OpenAPI contract for the 4 MVP endpoints
-2. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
+1. Commit the Phase 3 files; decide whether to push `main` (still 5 commits
+   ahead of `origin/main`, so Phases 1/2/2.5 exist only on this machine)
+2. P1 (Product core): SQLite state store, FastAPI skeleton, OpenAPI contract for the 4 MVP endpoints
+3. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
+4. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
 
 ## Blocked
 

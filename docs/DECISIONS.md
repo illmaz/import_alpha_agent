@@ -3,6 +3,78 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## Phase 3 — Dockerized run lane (2026-09-22)
+
+### PR #1 was discarded, not merged
+
+Phase 3 was first built in a separate Qwen Coder session, on branch
+`qwen-coder-vs-code-connection-fix-bc4eb` (`407f1e7`, PR #1). It was closed
+without merging. Its merge base with `main` is `30c759c` — the commit *before*
+Phase 1 — so it never saw the event bus, the LLM orchestrator or the liveness
+work. It shipped its own async `Bus` class (`await bus.publish(Event)`) and
+imported `Topic`, `RouterRequest`, `RouterResult` and `ProductResult`, none of
+which exist in this `events.py`. A dry-run merge conflicted in 9 files, and
+resolving them would still have left code that fails on import.
+
+The branch is kept for reference. What was salvaged from it is design, not
+code: compose-level healthcheck gating and the broker-resilience acceptance
+test. Three bugs in it were fixed rather than carried over — two broker
+listeners bound to the same port (the broker refuses to start), the
+engineering and landing services both running `product_worker.py`, and a hard
+`env_file: .env` that fails when no `.env` exists.
+
+The lesson worth keeping: a parallel agent session must be branched from the
+current head, and its work checked in before the main line moves on. Four
+commits of divergence made an otherwise reasonable piece of work unusable.
+
+### Compose is the only place bootstrap servers are configured
+
+`bus.BOOTSTRAP_SERVERS` reads `BOOTSTRAP_SERVERS`, defaulting to
+`localhost:9092`. Every compose service sets `kafka:9092`. That env var is the
+*only* Python-visible change Phase 3 made; the orchestrator daemon and all
+workers run byte-identical inside and outside Docker, so a container-only bug
+cannot hide in a code path tests never take.
+
+### The broker advertises kafka:9092, so host clients no longer work
+
+`KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092` is a single listener,
+which is what makes container-to-container traffic correct and avoids PR #1's
+same-port collision. The cost: a client on the host that connects to
+`localhost:9092` is redirected to `kafka:9092`, which does not resolve outside
+the compose network. Running `python scripts/submit_goal.py` from the host
+therefore hangs; use `docker compose run --rm cli ...` instead. The port is
+still published on `127.0.0.1:9092` for probes. Restoring host access means a
+second `PLAINTEXT_HOST` listener on its own port (9093 is taken by the
+controller, so 29092) — deliberately not done yet, since nothing needs it.
+
+### Kafka has no restart policy; the app services do
+
+The six application services are `restart: unless-stopped`. Kafka deliberately
+is not: the broker-resilience check kills it and expects it to stay down until
+brought back by hand. An auto-restarting broker would make that check untestable.
+
+### The cli service is profile-gated
+
+`profiles: ["cli"]` keeps the one-shot goal submitter out of
+`docker compose up`, which would otherwise start it, submit a hardcoded goal
+and leave an exited container in `ps` on every boot. It is reached only through
+`docker compose run --rm cli ...`.
+
+### BROKER-RESILIENCE CHECK — outcome
+
+**PASSED, 2026-09-22.** Killed kafka, waited 15s, restarted it, submitted a new
+goal. All six app containers stayed up (RestartCount 0) and the goal completed
+end to end with no duplicate dispatches.
+
+**Caveat worth knowing before relying on this:** recovery is not immediate.
+librdkafka logs `Connection refused` throughout the outage, then needs a ~45s
+consumer-group session timeout plus a rebalance before goals are consumed
+again. A goal submitted during that window is not lost — it sits on the topic
+and is picked up after the rebalance — but "resilient" here means *eventually
+self-healing*, not *uninterrupted*. Note that 45s is well under the 120s
+`STEP_TTL_SECONDS`, so an outage does not by itself trip stall detection; a
+longer outage would, and the goal would replan rather than hang.
+
 ## Phase 2.5 — Liveness (2026-09-21)
 
 ### The liveness invariant

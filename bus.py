@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, List, Optional
 
 from confluent_kafka import Consumer, KafkaError, Producer
 
 from events import Event
 
-BOOTSTRAP_SERVERS = "localhost:9092"
+# Defaults to the host-side port so a plain `python orchestrator.py` still works
+# against the composed broker; inside compose every service sets kafka:9092.
+BOOTSTRAP_SERVERS = os.environ.get("BOOTSTRAP_SERVERS", "localhost:9092")
 
 logger = logging.getLogger(__name__)
 

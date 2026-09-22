@@ -1,17 +1,40 @@
+# Phase 3 — dockerized run lane.
+#
+# Rebuilt on main's sync bus (bus.produce / bus.consume). Every application
+# service runs one of the repo's existing entrypoints unchanged; the only thing
+# compose injects is BOOTSTRAP_SERVERS=kafka:9092.
+
+x-app: &app
+  build: .
+  restart: unless-stopped
+  depends_on:
+    kafka:
+      condition: service_healthy
+  environment:
+    BOOTSTRAP_SERVERS: kafka:9092
+  # Optional: LLM_PROVIDER / LLM_API_KEY / ACTIVE_ROLES / TTLs. Absent .env is
+  # not an error, so a fresh clone comes up on FakeLLM with no credentials.
+  env_file:
+    - path: .env
+      required: false
+
 services:
   kafka:
     # bitnami/kafka:3.9 was retired from Docker Hub (404); Bitnami moved
-    # versioned tags to the bitnamilegacy namespace.
+    # versioned tags to the bitnamilegacy namespace. See docs/DECISIONS.md.
     image: bitnamilegacy/kafka:3.9
     container_name: importalpha-kafka
     ports:
-      - "9092:9092"
+      # Host-visible on loopback only — never on the LAN.
+      - "127.0.0.1:9092:9092"
     environment:
       - KAFKA_CFG_NODE_ID=0
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      # One broker listener on 9092 plus the KRaft controller on 9093. PR #1
+      # bound two broker listeners to 9092, which the broker refuses to start.
       - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
@@ -23,6 +46,52 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
     volumes:
       - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    # Deliberately no restart policy: the broker-resilience check kills kafka
+    # and expects it to stay down until brought back by hand.
+
+  orchestrator:
+    <<: *app
+    container_name: importalpha-orchestrator
+    command: python orchestrator.py
+
+  router:
+    <<: *app
+    container_name: importalpha-router
+    command: python router_worker.py
+
+  product_worker:
+    <<: *app
+    container_name: importalpha-product-worker
+    command: python product_worker.py
+
+  engineering_worker:
+    <<: *app
+    container_name: importalpha-engineering-worker
+    command: python engineering_worker.py
+
+  landing_worker:
+    <<: *app
+    container_name: importalpha-landing-worker
+    command: python landing_worker.py
+
+  artifact_logger:
+    <<: *app
+    container_name: importalpha-artifact-logger
+    command: python artifact_logger.py
+
+  cli:
+    <<: *app
+    # One-shot: it must not be resurrected after submitting its goal, and it
+    # must not start with a bare `docker compose up`.
+    restart: "no"
+    profiles: ["cli"]
+    command: python scripts/submit_goal.py "hello"
 
 volumes:
   kafka_data:
