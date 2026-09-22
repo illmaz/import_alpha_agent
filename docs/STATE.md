@@ -2,7 +2,7 @@
 
 ## Phase
 
-Phase 3 complete — the whole agent lane runs in Docker. Next up is P1 (product core).
+P1 in progress — FastAPI skeleton and OpenAPI contract are up; no data layer yet.
 
 ## Completed
 
@@ -77,18 +77,48 @@ Phase 3 complete — the whole agent lane runs in Docker. Next up is P1 (product
   end with no duplicate dispatches. Recovery is not instant — librdkafka takes
   a ~45s consumer-group session timeout and rebalance before goals flow again.
 
+**P1 Part 1 (FastAPI skeleton + OpenAPI contract) — FINISHED 2026-09-22.**
+
+- Added `app/` package: `main.py` (FastAPI `title="ImportAlpha Lite"`,
+  `GET /health`), `api/v1/endpoints.py` (router `prefix="/v1"`) and
+  `schemas.py` (Pydantic v2 request/response contracts).
+- All four MVP endpoints are wired as stubs: `GET /v1/opportunities`,
+  `POST /v1/landed-cost`, `POST /v1/reports` (202), `GET /v1/reports/{id}`.
+- **Stubs return `status="stub"` with every estimate `null`**, not dummy
+  numbers. AGENTS.md forbids invented data, and a placeholder that looks like
+  a real estimate is exactly what that rule exists to stop. `SourceMetadata`
+  (source_url / observed_at / confidence) is the enforcement point for when
+  real datapoints arrive. `tests/test_api.py::test_no_stub_endpoint_emits_an_unsourced_number`
+  asserts this directly so it cannot regress quietly.
+- Added `fastapi` service to docker-compose.yml (uvicorn on 8000, published to
+  the host) and a profile-gated `pytest` one-shot service. `tests/` removed
+  from `.dockerignore` so the image can run them.
+- Added `httpx2>=2.13.0` to requirements: starlette 1.6 requires an HTTP client
+  for `TestClient` and prefers `httpx2` over the now-deprecated `httpx`.
+- **Verified live**: 8 services up with RestartCount 0; `/health` returns
+  `{"status":"ok"}`; all four v1 endpoints return schema-valid JSON; `/docs`
+  serves HTTP 200. **65 tests pass** (49 existing + 16 new), both on the host
+  and via `docker compose run --rm pytest`.
+- The API process is independent of Kafka — it neither produces nor consumes
+  events yet, so it serves with the broker down.
+
+
 ## In Progress
 
-- None — Phase 3 is complete and awaiting review. The Phase 3 files are
+- P1 product core. Part 1 (skeleton) is done and awaiting review; the data
+  layer, scoring engine and fixtures are not started. P1 Part 1 files are
   written but **not yet committed**.
 
 ## Next Actions
 
-1. Commit the Phase 3 files; decide whether to push `main` (still 5 commits
-   ahead of `origin/main`, so Phases 1/2/2.5 exist only on this machine)
-2. P1 (Product core): SQLite state store, FastAPI skeleton, OpenAPI contract for the 4 MVP endpoints
-3. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
-4. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
+1. P1 Part 2: SQLite state store (tasks, events, artifacts) + report persistence,
+   so `GET /v1/reports/{id}` can 404 on an unknown id instead of echoing it back
+2. P1 Part 3: product opportunity scoring engine + curated home-organization
+   fixture dataset (20 products), each datapoint carrying source_url /
+   observed_at / confidence
+3. Wire `POST /v1/reports` to the Kafka lane so a report request becomes a goal
+4. Consider worker heartbeats — the step TTL is wall-clock, so a legitimately slow step is indistinguishable from a dead worker (see docs/DECISIONS.md)
+5. Optional: a second host-facing Kafka listener, so `python scripts/submit_goal.py` works from the host again (see DECISIONS.md)
 
 ## Blocked
 

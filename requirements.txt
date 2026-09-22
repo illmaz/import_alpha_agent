@@ -3,6 +3,9 @@ pydantic>=2.9.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pytest>=8.3.0
+# fastapi.testclient needs an HTTP client. starlette>=1.6 prefers httpx2 and
+# warns (deprecated) when it falls back to httpx.
+httpx2>=2.13.0
 
 # Only needed for LLM_PROVIDER=anthropic / =openai. The default FakeLLM
 # provider imports neither, so tests and local dev run without them.

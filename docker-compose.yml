@@ -85,6 +85,26 @@ services:
     container_name: importalpha-artifact-logger
     command: python artifact_logger.py
 
+  fastapi:
+    <<: *app
+    container_name: importalpha-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # One-shot test runner: `docker compose run --rm pytest`.
+  pytest:
+    <<: *app
+    restart: "no"
+    profiles: ["test"]
+    command: python -m pytest -q
+
   cli:
     <<: *app
     # One-shot: it must not be resurrected after submitting its goal, and it

@@ -5,6 +5,5 @@ __pycache__/
 .git/
 .github/
 docs/
-tests/
 *.log.jsonl
 .env
