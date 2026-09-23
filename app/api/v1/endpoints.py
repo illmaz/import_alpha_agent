@@ -13,7 +13,7 @@ from typing import Optional
 
 import stripe
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas import (
@@ -45,9 +45,17 @@ _bearer = HTTPBearer(auto_error=False, description="API key issued by ImportAlph
 
 
 async def get_current_account(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> str:
-    """Resolve `Authorization: Bearer <key>` to an account_id, or 401.
+    """Resolve the caller to an account_id, or 401.
+
+    Two ways in, checked in this order:
+
+      1. `Authorization: Bearer <key>` — an existing customer.
+      2. A verified x402 USDC payment, which the middleware has already
+         settled and recorded on `request.state`. By the time this runs, the
+         on-chain transfer is confirmed and the credit is in the ledger.
 
     Missing, malformed, unknown and revoked keys are deliberately
     indistinguishable in the response: telling a caller which one it was helps
@@ -55,11 +63,18 @@ async def get_current_account(
     """
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Missing or invalid API key. Send 'Authorization: Bearer <key>'.",
+        detail=(
+            "Missing or invalid API key. Send 'Authorization: Bearer <key>', "
+            "or pay per call with an 'X-Payment-Hash' header."
+        ),
         headers={"WWW-Authenticate": "Bearer"},
     )
 
     if credentials is None or not credentials.credentials:
+        # No key — but the x402 middleware may have paid for this request.
+        paid_account = getattr(request.state, "x402_account_id", None)
+        if paid_account:
+            return paid_account
         raise unauthorized
 
     account_id = await verify_api_key(credentials.credentials)

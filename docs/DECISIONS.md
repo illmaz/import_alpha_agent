@@ -3,6 +3,92 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P2.4 — x402 USDC payments on Base, testnet only (2026-09-23)
+
+### USDC is ERC-20, so the payment is in the logs, not in `tx.value`
+
+The brief described verifying `to == recipient` and `value == amount`. That is
+how you verify an **ETH** transfer, and it is wrong for USDC. On a real USDC
+payment:
+
+    tx.value == 0                  # no native ETH moved
+    tx.to    == the USDC contract  # NOT the seller
+
+Implemented literally, that check would reject every genuine USDC payment —
+and, worse, accept a zero-value call to the seller as if it were one. The
+amount and the real recipient exist only in the
+`Transfer(address,address,uint256)` event the token contract emits, so the
+verifier decodes receipt logs.
+
+The log must also come **from the USDC contract address**. Anyone can deploy a
+worthless token that emits an identically-shaped Transfer event; without that
+check, paying in a token you minted yourself would work.
+
+### Confirmations, because a successful transaction can still be undone
+
+A receipt reporting success is not final — a reorg can remove the block.
+`X402_MIN_CONFIRMATIONS` (default 2) is the cheapest defence and costs seconds
+on Base. It should be raised before real value is involved.
+
+### A transaction hash is public: it proves payment, not identity
+
+This is the structural weakness of hash-as-receipt, and it cannot be fully
+fixed at this layer. Anyone reading a block explorer can copy a hash and
+present it as their own.
+
+Two mitigations, both departures from the brief:
+
+**Per-payer accounts, not a shared `x402-agent`.** One shared account would
+pool every agent's credits, so whoever called next would spend whatever the
+last payer had left. The account id is derived from the paying address
+(`x402:0x…`), which the Transfer log already provides.
+
+**A re-used hash is refused with 402, not silently accepted.** A hash buys one
+credit, once, and is consumed by the request presenting it. Allowing a replay
+would let a stranger spend the real payer's balance — the exact theft the
+public-hash problem enables.
+
+That closes the theft path but not the race: whoever presents a fresh hash
+first gets the credit. The real fix is the x402 spec's signed authorisation
+(EIP-3009 `transferWithAuthorization`), where the caller proves control of the
+paying key. Not built; recorded in docs/X402_SETUP.md.
+
+### Mainnet is refused in code, not discouraged in prose
+
+AGENTS.md: *no wallet custody, no mainnet payments, sandbox/testnet only.*
+`assert_testnet()` raises `MainnetRefused` on `base-mainnet`, so enabling real
+money is an edit to the guard plus an edit to AGENTS.md in the same commit —
+never a config flag that silently starts accepting value.
+
+This project holds no private key and signs nothing. The wallet address is a
+receiving address only; every chain call is read-only.
+
+### The x402 price is ~300–990x below fiat, and is left visible rather than fixed
+
+`X402_CREDIT_PRICE_BASE_UNITS` defaults to 10 000 base units = **$0.01** per
+credit, as specified. Stripe sells the same credit at **$2.99** (api_credits)
+or **$9.90** (report_pack). An agent therefore pays two to three orders of
+magnitude less than a human for identical work.
+
+That is a pricing decision, not a bug in this code, so it is not silently
+"corrected" here — but it is not hidden either: the constant carries the
+comparison in a comment, `.env.example` repeats it with the aligned values
+($2.99 = 2 990 000, $9.90 = 9 900 000), and X402_SETUP.md lists it as a
+prerequisite for mainnet. On testnet it costs nothing. On mainnet it is a real
+loss per call.
+
+### `.lstrip("0x")` is not how you remove a hex prefix
+
+Found while checking the log decoder: `"0x0df2…".lstrip("0x")` returns
+`"df2…"` — lstrip removes *every* leading `0` and `x`, so any topic or hash
+beginning with a zero nibble loses it. `HexBytes.hex()` also returns a
+prefixed string in some web3 versions and a bare one in others, so the prefix
+cannot be assumed present or absent.
+
+Both are handled by `x402._hex()`, which strips an actual `0x` prefix and
+nothing else. It is tested with a leading-zero value that the old code would
+have mangled.
+
 ## P2.3 fixes — stale images, Stripe v12 objects, real landing pages (2026-09-23)
 
 ### The stale-image trap: `--force-recreate` does not rebuild

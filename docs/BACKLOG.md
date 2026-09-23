@@ -117,10 +117,22 @@
 - [ ] Recurring billing — CONTEXT.md calls api_credits "$299/month"; it is
       currently a one-time pack
 
-### P2.4 — Metering and agent payments
+### P2.4 — x402 agent payments (code complete, testnet)
+
+- [x] verify_payment against Base Sepolia (ERC-20 Transfer logs, not tx.value)
+- [x] Confirmation depth check; mainnet refused at the call site
+- [x] Middleware: X-Payment-Hash -> verified payment -> access
+- [x] Per-payer accounts; re-used hash refused with 402
+- [x] docs/X402_SETUP.md (wallet, faucets, curl, mainnet checklist)
+- [ ] **One real Base Sepolia USDC payment** — the log decoder is only
+      covered by fixtures until then
+- [ ] Decide the x402 credit price ($0.01 vs $2.99-$9.90 via Stripe)
+- [ ] Upgrade to EIP-3009 signed authorisations (a tx hash is public and
+      proves payment, not identity)
+
+### P2.5 — Metering
 
 - [ ] Add usage metering (per-account request history, not just spend)
-- [ ] Add x402 sandbox payment challenge (testnet only)
 
 ## P3 — Growth
 

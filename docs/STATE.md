@@ -512,26 +512,83 @@ Before believing any fix took effect:
     docker compose exec <svc> grep -n "<line you changed>" <file>
 
 
+**P2.4 (x402 USDC payments on Base — testnet) — CODE COMPLETE 2026-09-23.**
+
+- Added `web3>=6.0.0` and `eth-account>=0.10.0`. This project holds **no
+  private key and signs nothing** — every chain call is read-only.
+- Added `app/services/x402.py`: `verify_payment()` /
+  `verify_payment_detailed()` against Base Sepolia.
+  **Verification reads ERC-20 Transfer logs, not `tx.value`.** On a real USDC
+  payment `tx.value` is 0 and `tx.to` is the USDC contract, so the brief's
+  `to == recipient / value == amount` check would have rejected every genuine
+  payment. The log must also be emitted *by the USDC contract*, or a
+  self-minted token would pay.
+- Also checks receipt status and `X402_MIN_CONFIRMATIONS` (default 2) — a
+  reorg can undo a transaction that already reported success.
+- **`base-mainnet` is refused at the call site** (`MainnetRefused`), per
+  AGENTS.md. Enabling real money means editing the guard *and* AGENTS.md in
+  one commit, never a config flag.
+- Added `app/services/x402_middleware.py`. An `Authorization` header always
+  wins; otherwise a verified `X-Payment-Hash` settles a payment and the
+  request proceeds as that account.
+- **Two deliberate departures from the brief, both security-driven:**
+  per-payer accounts (`x402:0x…`) instead of one shared `x402-agent`, because
+  a shared account pools everyone's credits; and a re-used hash is **refused
+  with 402**, because a transaction hash is public and proves payment, not
+  identity — a replay would let a stranger spend the payer's balance.
+- Added `docs/X402_SETUP.md`: wallet setup, Base Sepolia ETH + USDC faucets,
+  curl examples for both payment paths, what is verified and why, the
+  hash-is-not-identity limitation, and a mainnet checklist.
+- Fixed a latent hex bug found while checking the decoder: `.lstrip("0x")`
+  removes *every* leading `0` and `x`, mangling any topic with a leading zero
+  nibble. `_hex()` strips only a real prefix and is tested against it.
+- Added tests/test_x402.py (39). **411 tests pass**, host and in-container.
+
+### Verified live, 2026-09-23
+
+- API key path: `200` (unchanged).
+- No key, no payment: `401`, now naming both ways in.
+- No key, bogus hash: `402` from the **real Base Sepolia RPC**
+  (`transaction not found or not yet mined`), with a machine-actionable body
+  carrying network, USDC contract, `pay_to` and amount.
+- Confirmed connectivity to Base Sepolia (`is_connected: True`, block
+  47,193,982).
+
+**Not verified against a real on-chain transfer.** The public Base RPC refuses
+`eth_getLogs` range queries (413), so no genuine USDC Transfer could be
+sourced to decode. Log decoding is covered by unit fixtures only — the first
+real testnet payment is what confirms it end to end.
+
+### x402 pricing is far below fiat — decide before mainnet
+
+`X402_CREDIT_PRICE_BASE_UNITS` defaults to 10 000 = **$0.01** per credit, as
+specified. Stripe sells the same credit at **$2.99–$9.90**, so an agent pays
+~300–990x less than a human. Harmless on testnet, a real loss on mainnet.
+Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
+
+
 ## In Progress
 
-- P2 monetization. P2.1 through P2.3 are code complete; the P2.3 webhook
-  crash is fixed and verified against real signed Stripe events. **The
-  end-to-end card payment still needs a human** (hosted checkout). Metering
-  and x402 (P2.4) are not started.
+- P2 monetization. P2.1 through P2.4 are code complete. Stripe is verified
+  end to end (a real test-mode card payment credited 10 credits). x402 is
+  verified against the live Base Sepolia RPC but **not yet against a real
+  USDC transfer**. Usage metering is not started.
 - LLM provider is **fake** — no spend. `./scripts/toggle_llm.sh real` to switch.
 
 ## Next Actions
 
-1. **Run the Stripe test-mode acceptance** — needs `sk_test_` + `whsec_` keys.
-   Checkout, pay with 4242..., confirm the ledger row and reconcile, then
-   resend the event and confirm the balance does not move
-2. Replace the curated fixture with sourced data — still the single change
+1. **Make one real Base Sepolia USDC payment** and call the API with its hash.
+   This is the only part of x402 not yet exercised against the chain, and it
+   is what confirms the log decoder. See docs/X402_SETUP.md
+2. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
+   $2.99-$9.90 Stripe charges for the same credit
+3. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`
-3. Move the database off the bind mount (named volume, then Postgres). Postgres
+4. Move the database off the bind mount (named volume, then Postgres). Postgres
    also lets append-only be enforced by grants rather than by discipline
-4. P2.4: usage metering, then x402 sandbox
-5. Persist the agent lane's tasks/events/artifacts — only reports are stored
-6. Revisit margin weighting: every product clears the 60% saturation cap, so
+5. Usage metering (per-account request history, not just spend)
+6. Persist the agent lane's tasks/events/artifacts — only reports are stored
+7. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
 
 ## Blocked

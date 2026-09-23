@@ -12,6 +12,10 @@ alembic>=1.13.0
 # call site fails loudly when STRIPE_SECRET_KEY is unset rather than silently
 # falling back to something.
 stripe>=11.0.0
+# x402: verify USDC transfers on Base. Read-only RPC — this project holds no
+# keys and signs nothing (AGENTS.md: no wallet custody).
+web3>=6.0.0
+eth-account>=0.10.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pytest>=8.3.0

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from app.api.v1.endpoints import router as v1_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.billing_pages import router as billing_pages_router
+from app.services.x402_middleware import X402PaymentMiddleware
 from app.database import init_models
 from app.schemas import HealthResponse
 
@@ -42,6 +43,12 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+
+
+# Runs before routing, so an unauthenticated request carrying a verified
+# X-Payment-Hash reaches the endpoints as a paying account. An Authorization
+# header always wins; see X402PaymentMiddleware.
+app.add_middleware(X402PaymentMiddleware)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["ops"])
