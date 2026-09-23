@@ -3,6 +3,85 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P2.3 fixes — stale images, Stripe v12 objects, real landing pages (2026-09-23)
+
+### The stale-image trap: `--force-recreate` does not rebuild
+
+Three correct fixes were applied to the host and appeared to do nothing,
+because the running container held code from the previous day:
+
+    image created:             2026-09-22T17:58:35Z
+    host webhooks.py modified: 2026-09-23 12:07:52
+
+`docker compose up -d --force-recreate <svc>` recreates the **container** from
+the **existing image**. The Dockerfile copies source at build time, so a host
+edit reaches a container only after `docker compose build`. Recreating without
+building reruns yesterday's code with complete confidence.
+
+This is the second time this trap has cost us — the first was P1 Part 2, where
+`docker compose run --rm pytest` reported 65 passing tests against code that
+had 141, because profile-gated services are not rebuilt by `up --build`
+either. The failure mode is the same both times: **the system reports success
+for code that is not running.**
+
+The habit that catches it, before changing anything else:
+
+    docker compose exec <svc> grep -n "<the line you just changed>" <file>
+
+If the old line is still there, the edit never shipped. Rebuild with
+`docker compose build <svc> && docker compose up -d`, and remember
+`docker compose build pytest cli` for the profile-gated services.
+
+### stripe-python v12+: StripeObject is not a dict
+
+`stripe.Event` and every nested `StripeObject` stopped subclassing `dict`.
+`.get()` now raises:
+
+    AttributeError: 'get' is a dict method, but a Event is not a dict.
+    Use .to_dict() to convert it.
+
+This applies to nested values too: `session.metadata` is itself a
+StripeObject, so `metadata.get("account_id")` fails exactly as the outer call
+did — which is why a first round of fixes to the top-level event was not
+enough. Even `dict(session.metadata)` raises; it needs `.to_dict()`.
+
+Fields are now read with `getattr(obj, name, None)`, which returns None for an
+absent key rather than raising AttributeError.
+
+### Dict fixtures let this ship green, so the fixtures changed
+
+`tests/test_stripe.py` built events as plain dicts. Plain dicts support both
+`.get()` and (via the handler's attribute access) nothing — so the suite
+exercised a code path that could not fail the way production did. **25 tests
+passed while the first real webhook 500'd.**
+
+Fixtures are now built with `stripe.Event.construct_from(...)`, producing real
+StripeObjects. Verified by reverting the handler to `event.get("id")`: **12
+tests fail**, where previously all passed. `test_fixtures_are_real_stripe_objects_not_dicts`
+asserts the fixtures are not dicts and that `.get()` raises on them, so a
+future rewrite back to dicts fails loudly instead of silently restoring the
+blind spot.
+
+The general lesson: a mock that is more permissive than the real object tests
+nothing about the boundary it stands in for.
+
+### "Example Domain" was a placeholder, not a broken checkout
+
+After paying, the browser landed on example.com and the checkout URL looked
+broken — but the `evt_` in the tunnel proved payment had completed. The
+`success_url` was `https://example.com/billing/success`, a placeholder from
+P2.3. Stripe did exactly what it was told.
+
+There are now real pages at `/billing/success` and `/billing/cancel`
+(`app/billing_pages.py`), unauthenticated because a redirected browser carries
+no API key, and `PUBLIC_BASE_URL` overrides the host for tunnels or
+deployment. `success_url` carries `?session_id={CHECKOUT_SESSION_ID}`, which
+Stripe substitutes.
+
+The success page deliberately does **not** say the credits have arrived. They
+are added by the webhook, a separate request that may land a moment after the
+redirect; claiming otherwise would be the one lie that page could tell.
+
 ## P2.3 — Stripe Checkout, test mode (2026-09-22)
 
 ### The signature is the credential; metadata is never an amount

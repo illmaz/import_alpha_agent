@@ -165,16 +165,25 @@ def verify_event(payload: bytes, signature: Optional[str]) -> Any:
     return stripe.Webhook.construct_event(payload, signature, secret)
 
 
-def credits_for_completed_session(session: Dict[str, Any]) -> tuple[str, str, int]:
+def credits_for_completed_session(session: Any) -> tuple[str, str, int]:
     """Re-derive (account_id, pack_id, credits) from a verified session.
+
+    `session` is a `stripe.StripeObject`, **not a dict**. Since stripe-python
+    v12 these objects no longer subclass dict: `.get()` raises
+    "'get' is a dict method, but a StripeObject is not a dict". That applies
+    to nested values too — `session.metadata` is itself a StripeObject, so
+    `metadata.get("account_id")` fails exactly like the outer call did.
+
+    Fields are therefore read with `getattr(..., None)`, which returns None for
+    an absent key instead of raising AttributeError.
 
     Raises:
         ValueError: metadata is missing, the pack is unknown, or the amount
             Stripe charged does not match the pack's price.
     """
-    metadata = session.get("metadata") or {}
-    account_id = metadata.get("account_id")
-    pack_id = metadata.get("pack_id")
+    metadata = getattr(session, "metadata", None)
+    account_id = getattr(metadata, "account_id", None) if metadata else None
+    pack_id = getattr(metadata, "pack_id", None) if metadata else None
 
     if not account_id or not pack_id:
         raise ValueError("session metadata is missing account_id or pack_id")
@@ -187,7 +196,7 @@ def credits_for_completed_session(session: Dict[str, Any]) -> tuple[str, str, in
     # Defence in depth: the pack lookup fixes the credit count, and this fixes
     # the price. A session created against a tampered amount is refused rather
     # than silently granting a pack that was not paid for.
-    amount_total = session.get("amount_total")
+    amount_total = getattr(session, "amount_total", None)
     if amount_total is not None and amount_total != pack["amount_cents"]:
         raise ValueError(
             f"amount mismatch for {pack_id!r}: charged {amount_total}, "

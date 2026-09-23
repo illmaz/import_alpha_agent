@@ -455,11 +455,69 @@ are not in this checkout. Everything is exercised by automated tests against a
 stubbed Stripe; the end-to-end payment has not been performed.
 
 
+**P2.3 fixes (stale image, Stripe v12, landing pages) — 2026-09-23.**
+
+- **Root cause of "our fixes do nothing": a stale image.** The running
+  container held code from the previous day (image built 17:58 on 09-22, host
+  file edited 12:07 on 09-23). `--force-recreate` recreates the *container*
+  from the *existing image*; it does not rebuild. Proven by
+  `docker compose exec fastapi grep -n "event.get" app/api/v1/webhooks.py`,
+  which still matched after every "fix".
+- **Stripe SDK v12+ breaking change.** `stripe.Event` and nested
+  `StripeObject`s no longer subclass dict, so `.get()` raises
+  `AttributeError: 'get' is a dict method...`. This includes
+  `session.metadata`, which is why fixing only the top-level event was not
+  enough. All access is now `getattr(obj, name, None)`.
+- **Tests were the reason this shipped green.** Dict fixtures could not
+  reproduce the failure. `tests/test_stripe.py` now builds events with
+  `stripe.Event.construct_from(...)`. Verified by reverting the handler to
+  `event.get("id")`: **12 tests fail** where all previously passed.
+- **"Example Domain" was a placeholder, not a broken URL.** `success_url` was
+  `https://example.com/...` from P2.3, so a *successful* payment redirected
+  there. Added real pages at `/billing/success` and `/billing/cancel`
+  (`app/billing_pages.py`), with `PUBLIC_BASE_URL` for tunnels.
+- **372 tests pass**, host and in-container.
+
+### Verified live, 2026-09-23
+
+- Container now contains `event_id = event.id` (checked with
+  `docker compose exec`), and no `event.get` remains in the image.
+- `POST /v1/billing/checkout` against real Stripe test mode returned a
+  `checkout.stripe.com` URL; the stored session shows `livemode: False`,
+  `mode: payment`, `amount_total: 9900`,
+  `success_url: http://localhost:8000/billing/success?session_id={CHECKOUT_SESSION_ID}`
+  and metadata `{account_id, pack_id}`.
+- A real signed event (`evt_1UImLcQuQ6CWr9CETPaqvIPt`) delivered through
+  `stripe listen` **passed signature verification** and returned a clean
+  **400** with `session metadata is missing account_id or pack_id` — the
+  correct response to a `stripe trigger` fixture, and **no 500, no
+  AttributeError**.
+- `/billing/success` and `/billing/cancel` both return HTTP 200 HTML.
+
+**Still outstanding:** the end-to-end card payment. It needs a human to
+complete Stripe's hosted checkout with `4242 4242 4242 4242`; it cannot be
+driven from here. Baseline balance for that run is **5 credits**, and
+`report_pack` should take it to **15**.
+
+### Docker rule, learned twice
+
+Code changes require **`docker compose build`**. `--force-recreate` alone
+reuses the old image, and `up --build` skips profile-gated services:
+
+    docker compose build fastapi && docker compose up -d
+    docker compose build pytest cli        # profile-gated, not built by `up`
+
+Before believing any fix took effect:
+
+    docker compose exec <svc> grep -n "<line you changed>" <file>
+
+
 ## In Progress
 
-- P2 monetization. P2.1 through P2.3 are code complete and awaiting review.
-  **P2.3 needs a live test-mode payment run** — see the Stripe local dev flow
-  above. Metering and x402 (P2.4) are not started.
+- P2 monetization. P2.1 through P2.3 are code complete; the P2.3 webhook
+  crash is fixed and verified against real signed Stripe events. **The
+  end-to-end card payment still needs a human** (hosted checkout). Metering
+  and x402 (P2.4) are not started.
 - LLM provider is **fake** — no spend. `./scripts/toggle_llm.sh real` to switch.
 
 ## Next Actions

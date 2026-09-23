@@ -66,28 +66,68 @@ def completed_event(
     account_id: str = ACCOUNT,
     pack_id: str = "report_pack",
     amount_total: int | None = None,
-) -> Dict[str, Any]:
-    """A checkout.session.completed event shaped like Stripe's."""
+    metadata: Dict[str, Any] | None = None,
+) -> stripe.Event:
+    """A checkout.session.completed event as a REAL stripe.Event.
+
+    Built with `construct_from`, not as a plain dict. This matters: since
+    stripe-python v12 a StripeObject does not subclass dict, so `.get()`
+    raises on it and only attribute access works. Dict fixtures let the whole
+    suite pass while production crashed on the first real webhook — the bug
+    this file now exists to catch.
+    """
     pack = stripe_service.PRICE_TABLE.get(pack_id, {})
-    return {
+    payload = {
         "id": event_id,
         "type": "checkout.session.completed",
         "data": {
             "object": {
                 "id": "cs_test_123",
-                "amount_total": pack.get("amount_cents") if amount_total is None else amount_total,
+                "object": "checkout.session",
+                "amount_total": (
+                    pack.get("amount_cents") if amount_total is None else amount_total
+                ),
                 "currency": "usd",
-                "metadata": {"account_id": account_id, "pack_id": pack_id},
+                "metadata": (
+                    {"account_id": account_id, "pack_id": pack_id}
+                    if metadata is None
+                    else metadata
+                ),
             }
         },
     }
+    return stripe.Event.construct_from(payload, "sk_test_fake_for_tests")
+
+
+def test_fixtures_are_real_stripe_objects_not_dicts() -> None:
+    """Guards the fidelity gap that let the v12 breakage ship green.
+
+    If this file ever goes back to plain dicts, the handler's attribute access
+    would be exercised against something that also supports .get(), and the
+    production failure mode would stop being reachable from the tests.
+    """
+    event = completed_event()
+    assert isinstance(event, stripe.Event)
+    assert not isinstance(event, dict), "a dict fixture cannot catch the v12 break"
+
+    # The exact production crash:
+    #   AttributeError: 'get' is a dict method, but a Event is not a dict.
+    with pytest.raises(AttributeError, match="not a dict"):
+        event.get("id")
+
+    session = event.data.object
+    assert not isinstance(session, dict)
+    with pytest.raises(AttributeError, match="not a dict"):
+        session.metadata.get("account_id")  # nested objects break too
 
 
 def post_event(client: TestClient, monkeypatch: pytest.MonkeyPatch, event: dict):
     """Deliver an event, with signature verification stubbed to succeed."""
     monkeypatch.setattr(stripe_service, "verify_event", lambda payload, sig: event)
     return client.post(
-        WEBHOOK, content=json.dumps(event), headers={"Stripe-Signature": "t=1,v1=stub"}
+        WEBHOOK,
+        content=json.dumps(event.to_dict()),
+        headers={"Stripe-Signature": "t=1,v1=stub"},
     )
 
 
@@ -222,7 +262,7 @@ def test_bad_signature_is_rejected(
     monkeypatch.setattr(stripe_service, "verify_event", boom)
 
     response = client.post(
-        WEBHOOK, content=json.dumps(completed_event()),
+        WEBHOOK, content=json.dumps(completed_event().to_dict()),
         headers={"Stripe-Signature": "t=1,v1=forged"},
     )
     assert response.status_code == 400
@@ -231,7 +271,9 @@ def test_bad_signature_is_rejected(
 def test_missing_signature_header_is_rejected(
     client: TestClient, stripe_configured: None
 ) -> None:
-    response = client.post(WEBHOOK, content=json.dumps(completed_event()))
+    response = client.post(
+        WEBHOOK, content=json.dumps(completed_event().to_dict())
+    )
     assert response.status_code == 400
 
 
@@ -243,8 +285,10 @@ def test_bad_signature_credits_nothing(
         raise stripe.error.SignatureVerificationError("bad sig", sig_header=sig)
 
     monkeypatch.setattr(stripe_service, "verify_event", boom)
-    client.post(WEBHOOK, content=json.dumps(completed_event()),
-                headers={"Stripe-Signature": "forged"})
+    client.post(
+        WEBHOOK, content=json.dumps(completed_event().to_dict()),
+        headers={"Stripe-Signature": "forged"},
+    )
 
     assert run(get_balance(ACCOUNT)) == 0
     assert run(count_transactions(ACCOUNT)) == 0
@@ -277,8 +321,7 @@ def test_missing_metadata_is_rejected(
     client: TestClient, account: str, stripe_configured: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    event = completed_event()
-    event["data"]["object"]["metadata"] = {}
+    event = completed_event(metadata={})
 
     assert post_event(client, monkeypatch, event).status_code == 400
     assert run(get_balance(ACCOUNT)) == 0
@@ -290,7 +333,7 @@ def test_other_event_types_are_acknowledged_not_acted_on(
 ) -> None:
     """A 4xx would make Stripe retry an event we will never handle."""
     event = completed_event()
-    event["type"] = "payment_intent.created"
+    event.type = "payment_intent.created"
 
     response = post_event(client, monkeypatch, event)
 

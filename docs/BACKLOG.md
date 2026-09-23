@@ -109,7 +109,11 @@
 - [x] Credits re-derived server-side; amount checked against the pack price
 - [x] Idempotency via a partial unique index on purchase references
 - [x] Live `sk_live_` keys refused at the call site
-- [ ] **Run the test-mode acceptance** (needs sk_test_ + whsec_ keys)
+- [x] Fix webhook crash: Stripe v12 StripeObject is not a dict
+- [x] Real /billing/success and /billing/cancel pages (was example.com)
+- [x] Test fixtures use real stripe.Event objects, not dicts
+- [ ] **Complete the card payment** with 4242 4242 4242 4242 (needs a browser;
+      everything else in the flow is verified)
 - [ ] Recurring billing — CONTEXT.md calls api_credits "$299/month"; it is
       currently a one-time pack
 

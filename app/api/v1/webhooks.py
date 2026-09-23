@@ -56,8 +56,8 @@ async def stripe_webhook(request: Request) -> dict:
             detail="Signature verification failed.",
         ) from exc
 
-    event_id = event.get("id")
-    event_type = event.get("type")
+    event_id = event.id
+    event_type = event.type
 
     if event_type != stripe_service.CHECKOUT_SESSION_COMPLETED:
         # Acknowledged and ignored. A 4xx here would make Stripe retry an
@@ -65,7 +65,7 @@ async def stripe_webhook(request: Request) -> dict:
         logger.info("ignoring stripe event %s of type %s", event_id, event_type)
         return {"received": True, "handled": False, "reason": "event type not handled"}
 
-    session = (event.get("data") or {}).get("object") or {}
+    session = event.data.object
 
     try:
         account_id, pack_id, credits = stripe_service.credits_for_completed_session(

@@ -34,6 +34,7 @@ from app.schemas import (
 )
 from app.services.data_loader import load_opportunities
 from app.services.landed_cost import estimate_landed_cost
+from app import billing_pages
 from app.services import billing, kafka_publisher, report_store, stripe_service
 from app.services.auth import verify_api_key
 
@@ -374,8 +375,15 @@ async def create_checkout(
         session = stripe_service.create_checkout_session(
             account_id=account_id,
             pack_id=payload.pack_id,
-            success_url=payload.success_url or "https://example.com/billing/success",
-            cancel_url=payload.cancel_url or "https://example.com/billing/cancel",
+            # Real local pages, not example.com. The placeholder was why a
+            # successful payment landed on "Example Domain" and looked like a
+            # broken checkout URL — the payment had in fact completed.
+            # {CHECKOUT_SESSION_ID} is substituted by Stripe on redirect.
+            success_url=payload.success_url
+            or f"{billing_pages.PUBLIC_BASE_URL}{billing_pages.SUCCESS_PATH}"
+            f"?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=payload.cancel_url
+            or f"{billing_pages.PUBLIC_BASE_URL}{billing_pages.CANCEL_PATH}",
         )
     except stripe_service.StripeNotConfigured as exc:
         raise HTTPException(
