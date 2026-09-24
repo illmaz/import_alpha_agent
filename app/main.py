@@ -8,11 +8,14 @@ broker down. It does require its SQLite file, which is created on startup.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.endpoints import router as v1_router
+from app.api.v1.public_endpoints import router as public_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.billing_pages import router as billing_pages_router
 from app.services.x402_middleware import X402PaymentMiddleware
@@ -62,3 +65,13 @@ app.include_router(v1_router)
 app.include_router(webhooks_router)
 # Browser landing pages for Stripe redirects; unauthenticated by necessity.
 app.include_router(billing_pages_router)
+# Public marketing surface: sample reports and the price table, no API key.
+app.include_router(public_router)
+
+
+LANDING_DIR = Path(__file__).resolve().parents[1] / "landing"
+
+# Mounted last, and this ordering is load-bearing: a mount at "/" matches every
+# path that no earlier route claimed, so registering it above would shadow the
+# entire API. html=True serves index.html for "/".
+app.mount("/", StaticFiles(directory=LANDING_DIR, html=True), name="landing")

@@ -1,0 +1,169 @@
+{
+  "report_id": "sample-home-organizers",
+  "title": "Home Organization - US Import Viability",
+  "category": "home_organization",
+  "market": "US",
+  "generated_at": "2026-09-24T00:00:00+00:00",
+  "status": "curated",
+  "data_class": "curated_synthetic",
+  "disclaimer": "SAMPLE REPORT - CURATED SYNTHETIC. Every number here is hand-written to illustrate the shape and depth of a real ImportAlpha report. Nothing in it was observed from any marketplace, supplier or customs source. It is published as a product specimen only: do not source, price or purchase against these figures.",
+  "summary": "Five home-organization SKUs scored for China-to-US sourcing. The category is lightweight, low-compliance and broadly demanded, which is why it is the first wedge: margins survive air freight and nothing here is electronics, supplements or IP-heavy.",
+  "reference_order_units": 500,
+  "products": [
+    {
+      "product_id": "HO-bamboo-drawer-organizer",
+      "title": "Bamboo drawer organizer",
+      "category": "home_organization",
+      "opportunity_score": 74,
+      "estimated_unit_cost_usd": {
+        "low_usd": 2.1,
+        "high_usd": 3.5,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 4.35,
+      "estimated_margin_pct": 66.5,
+      "competition_signal": "moderate",
+      "trend_score": 72,
+      "competition_score": 45,
+      "estimated_retail_price_usd": 12.99,
+      "score_explanation": "Strong trend (72) against moderate competition (45); margin clears the saturation cap.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/home-organization/v1#bamboo-drawer-organizer",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "HO-stackable-shelf-bin",
+      "title": "Stackable shelf bin",
+      "category": "home_organization",
+      "opportunity_score": 66,
+      "estimated_unit_cost_usd": {
+        "low_usd": 1.2,
+        "high_usd": 2.4,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 3.1,
+      "estimated_margin_pct": 67.3,
+      "competition_signal": "moderate",
+      "trend_score": 64,
+      "competition_score": 58,
+      "estimated_retail_price_usd": 9.49,
+      "score_explanation": "Steady demand, denser competition (58) caps the ceiling.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/home-organization/v1#stackable-shelf-bin",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "HO-under-sink-organizer",
+      "title": "Under-sink organizer",
+      "category": "home_organization",
+      "opportunity_score": 71,
+      "estimated_unit_cost_usd": {
+        "low_usd": 3.4,
+        "high_usd": 5.2,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 6.85,
+      "estimated_margin_pct": 65.7,
+      "competition_signal": "low",
+      "trend_score": 68,
+      "competition_score": 41,
+      "estimated_retail_price_usd": 19.99,
+      "score_explanation": "Low competition (41) is the main lift; higher unit cost is absorbed by retail.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/home-organization/v1#under-sink-organizer",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "HO-cable-management-box",
+      "title": "Cable management box",
+      "category": "home_organization",
+      "opportunity_score": 61,
+      "estimated_unit_cost_usd": {
+        "low_usd": 2.6,
+        "high_usd": 4.1,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 5.2,
+      "estimated_margin_pct": 66.4,
+      "competition_signal": "moderate",
+      "trend_score": 59,
+      "competition_score": 63,
+      "estimated_retail_price_usd": 15.49,
+      "score_explanation": "Moderate on both axes; a volume play rather than a margin play.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/home-organization/v1#cable-management-box",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "HO-desk-organizer-tray",
+      "title": "Desk organizer tray",
+      "category": "home_organization",
+      "opportunity_score": 63,
+      "estimated_unit_cost_usd": {
+        "low_usd": 1.8,
+        "high_usd": 3.0,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 3.95,
+      "estimated_margin_pct": 67.1,
+      "competition_signal": "moderate",
+      "trend_score": 61,
+      "competition_score": 52,
+      "estimated_retail_price_usd": 11.99,
+      "score_explanation": "Cheap to land and ship; crowded enough to need differentiation.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/home-organization/v1#desk-organizer-tray",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    }
+  ]
+}

@@ -136,8 +136,10 @@
 
 ## P3 — Growth
 
-- [ ] Landing page (copy + sample JSON + Stripe link)
-- [ ] 3 sample reports in home organization
+- [x] Landing page (copy + sample JSON + pricing, served at `/`)
+- [x] 3 sample reports (home organization, kitchen gadgets, pet accessories)
+- [ ] Wire the pricing CTAs to real Stripe Checkout — they are mailto links
+      today, because self-serve checkout needs an account before it has a key
 - [ ] Demo agent script that consumes the API
 - [ ] Outreach list + draft messages (draft-only, human approves sends)
 

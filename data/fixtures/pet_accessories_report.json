@@ -1,0 +1,171 @@
+{
+  "report_id": "sample-pet-accessories",
+  "title": "Pet Accessories - US Import Viability",
+  "category": "pet_accessories",
+  "market": "US",
+  "generated_at": "2026-09-24T00:00:00+00:00",
+  "status": "curated",
+  "data_class": "curated_synthetic",
+  "disclaimer": "SAMPLE REPORT - CURATED SYNTHETIC. Every number here is hand-written to illustrate the shape and depth of a real ImportAlpha report. Nothing in it was observed from any marketplace, supplier or customs source. It is published as a product specimen only: do not source, price or purchase against these figures.",
+  "summary": "Five pet-accessory SKUs. The category carries the strongest margins of the three sampled, helped by willingness-to-pay, but one SKU is dimensionally awkward enough that freight, not unit cost, decides whether it works.",
+  "reference_order_units": 500,
+  "products": [
+    {
+      "product_id": "PA-slow-feeder-bowl",
+      "title": "Slow feeder bowl",
+      "category": "pet_accessories",
+      "opportunity_score": 76,
+      "estimated_unit_cost_usd": {
+        "low_usd": 1.7,
+        "high_usd": 2.9,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 3.8,
+      "estimated_margin_pct": 72.8,
+      "competition_signal": "moderate",
+      "trend_score": 75,
+      "competition_score": 52,
+      "estimated_retail_price_usd": 13.99,
+      "score_explanation": "Highest trend in the set (75) with only moderate competition.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/pet-accessories/v1#slow-feeder-bowl",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "PA-silicone-pet-food-mat",
+      "title": "Silicone pet food mat",
+      "category": "pet_accessories",
+      "opportunity_score": 68,
+      "estimated_unit_cost_usd": {
+        "low_usd": 1.4,
+        "high_usd": 2.5,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 3.25,
+      "estimated_margin_pct": 71.7,
+      "competition_signal": "moderate",
+      "trend_score": 67,
+      "competition_score": 57,
+      "estimated_retail_price_usd": 11.49,
+      "score_explanation": "Reliable repeat purchase; competition is moderate but rising.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/pet-accessories/v1#silicone-pet-food-mat",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "PA-collapsible-travel-bowl",
+      "title": "Collapsible travel bowl",
+      "category": "pet_accessories",
+      "opportunity_score": 63,
+      "estimated_unit_cost_usd": {
+        "low_usd": 0.9,
+        "high_usd": 1.7,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 2.3,
+      "estimated_margin_pct": 74.4,
+      "competition_signal": "moderate",
+      "trend_score": 62,
+      "competition_score": 64,
+      "estimated_retail_price_usd": 8.99,
+      "score_explanation": "Cheapest to land; margin is strong but the price ceiling is low.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/pet-accessories/v1#collapsible-travel-bowl",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "PA-pet-grooming-glove",
+      "title": "Pet grooming glove",
+      "category": "pet_accessories",
+      "opportunity_score": 57,
+      "estimated_unit_cost_usd": {
+        "low_usd": 1.1,
+        "high_usd": 2.2,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 2.85,
+      "estimated_margin_pct": 72.8,
+      "competition_signal": "high",
+      "trend_score": 58,
+      "competition_score": 68,
+      "estimated_retail_price_usd": 10.49,
+      "score_explanation": "Crowded (68); needs a materials or packaging angle to stand out.",
+      "risk_flags": [
+        "high_competition",
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/pet-accessories/v1#pet-grooming-glove",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "PA-cat-window-perch",
+      "title": "Cat window perch",
+      "category": "pet_accessories",
+      "opportunity_score": 72,
+      "estimated_unit_cost_usd": {
+        "low_usd": 5.2,
+        "high_usd": 8.4,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 10.4,
+      "estimated_margin_pct": 68.5,
+      "competition_signal": "low",
+      "trend_score": 71,
+      "competition_score": 39,
+      "estimated_retail_price_usd": 32.99,
+      "score_explanation": "Lowest competition (39) in the set, but bulk makes freight the deciding cost.",
+      "risk_flags": [
+        "low_data",
+        "oversized"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/pet-accessories/v1#cat-window-perch",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    }
+  ]
+}

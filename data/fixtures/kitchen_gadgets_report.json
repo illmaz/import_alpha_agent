@@ -1,0 +1,172 @@
+{
+  "report_id": "sample-kitchen-gadgets",
+  "title": "Kitchen Gadgets - US Import Viability",
+  "category": "kitchen_gadgets",
+  "market": "US",
+  "generated_at": "2026-09-24T00:00:00+00:00",
+  "status": "curated",
+  "data_class": "curated_synthetic",
+  "disclaimer": "SAMPLE REPORT - CURATED SYNTHETIC. Every number here is hand-written to illustrate the shape and depth of a real ImportAlpha report. Nothing in it was observed from any marketplace, supplier or customs source. It is published as a product specimen only: do not source, price or purchase against these figures.",
+  "summary": "Five kitchen-gadget SKUs. Margins run higher than home organization because unit costs are lower, but competition is heavier and several sub-niches are commodity races where only the cheapest lander survives.",
+  "reference_order_units": 500,
+  "products": [
+    {
+      "product_id": "KG-silicone-utensil-set",
+      "title": "Silicone utensil set (7-piece)",
+      "category": "kitchen_gadgets",
+      "opportunity_score": 69,
+      "estimated_unit_cost_usd": {
+        "low_usd": 3.8,
+        "high_usd": 6.2,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 7.6,
+      "estimated_margin_pct": 66.9,
+      "competition_signal": "high",
+      "trend_score": 70,
+      "competition_score": 66,
+      "estimated_retail_price_usd": 22.99,
+      "score_explanation": "High trend (70) but high competition (66); bundle size is the differentiator.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/kitchen-gadgets/v1#silicone-utensil-set",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "KG-collapsible-colander",
+      "title": "Collapsible colander",
+      "category": "kitchen_gadgets",
+      "opportunity_score": 55,
+      "estimated_unit_cost_usd": {
+        "low_usd": 1.9,
+        "high_usd": 3.2,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 4.15,
+      "estimated_margin_pct": 66.8,
+      "competition_signal": "high",
+      "trend_score": 58,
+      "competition_score": 71,
+      "estimated_retail_price_usd": 12.49,
+      "score_explanation": "Competition (71) is the binding constraint despite healthy margin.",
+      "risk_flags": [
+        "high_competition",
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/kitchen-gadgets/v1#collapsible-colander",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "KG-spice-rack-carousel",
+      "title": "Spice rack carousel",
+      "category": "kitchen_gadgets",
+      "opportunity_score": 70,
+      "estimated_unit_cost_usd": {
+        "low_usd": 4.5,
+        "high_usd": 7.1,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 8.9,
+      "estimated_margin_pct": 67.0,
+      "competition_signal": "moderate",
+      "trend_score": 66,
+      "competition_score": 48,
+      "estimated_retail_price_usd": 26.99,
+      "score_explanation": "Best of the set: solid trend, only moderate competition, high retail anchor.",
+      "risk_flags": [
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/kitchen-gadgets/v1#spice-rack-carousel",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "KG-jar-opener-grip",
+      "title": "Jar opener grip",
+      "category": "kitchen_gadgets",
+      "opportunity_score": 48,
+      "estimated_unit_cost_usd": {
+        "low_usd": 0.6,
+        "high_usd": 1.2,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 1.75,
+      "estimated_margin_pct": 78.1,
+      "competition_signal": "high",
+      "trend_score": 49,
+      "competition_score": 74,
+      "estimated_retail_price_usd": 7.99,
+      "score_explanation": "78% margin on paper, but a commodity race at this price point.",
+      "risk_flags": [
+        "high_competition",
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/kitchen-gadgets/v1#jar-opener-grip",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    },
+    {
+      "product_id": "KG-herb-stripping-tool",
+      "title": "Herb stripping tool",
+      "category": "kitchen_gadgets",
+      "opportunity_score": 52,
+      "estimated_unit_cost_usd": {
+        "low_usd": 0.8,
+        "high_usd": 1.6,
+        "currency": "USD"
+      },
+      "estimated_landed_cost_usd": 2.1,
+      "estimated_margin_pct": 75.3,
+      "competition_signal": "high",
+      "trend_score": 54,
+      "competition_score": 69,
+      "estimated_retail_price_usd": 8.49,
+      "score_explanation": "Novelty demand; trend is seasonal and competition is high.",
+      "risk_flags": [
+        "high_competition",
+        "low_data"
+      ],
+      "confidence_score": 0.25,
+      "source_metadata": [
+        {
+          "source_url": "curated://importalpha/kitchen-gadgets/v1#herb-stripping-tool",
+          "observed_at": "2026-09-24T00:00:00+00:00",
+          "confidence": 0.25,
+          "note": "Curated synthetic value. Not an observation."
+        }
+      ],
+      "status": "curated"
+    }
+  ]
+}

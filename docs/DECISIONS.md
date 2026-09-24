@@ -3,6 +3,59 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P3.1 — Landing page and sample reports (2026-09-24)
+
+### Published samples are labelled synthetic, in the payload and on the page
+
+`ResultStatus.CURATED` is documented as "nothing marked CURATED may be quoted
+to a customer", and the original fixture carries "Do not quote, publish or
+sell." A public landing page is the most customer-facing surface there is, so
+publishing curated numbers unlabelled would have broken the one rule this
+project has held since P0.
+
+The resolution is that the samples are published as **specimens of the report
+format**, not as intelligence. Each file carries `status: "curated"`,
+`data_class: "curated_synthetic"` and a `disclaimer` field; the page renders an
+amber banner above the tables and repeats the disclaimer under each one. Every
+`source_url` is a `curated://` URI, never an http(s) link that would imply an
+observation, and `confidence_score` is 0.25 throughout.
+
+This is the honest version of the marketing ask: a buyer can see exactly what
+they would receive, in full fidelity, without being shown a single number that
+pretends to be measured. `tests/test_landing.py` asserts the labelling so it
+cannot be quietly dropped — if these ever become sourced data, that is a
+deliberate change to those tests, not a silent edit to a JSON file.
+
+### The $999 tier is not in PRICE_TABLE
+
+CONTEXT.md offers three prices and the page shows three, but only two are
+self-serve. `stripe_service.PRICE_TABLE` drives `/v1/billing/checkout`, so
+adding a $999 "custom category feed" entry would have made it immediately
+purchasable — taking real money for a bespoke feed that no code delivers.
+
+`/v1/public/pricing` therefore composes its response: the two self-serve packs
+are read from `PRICE_TABLE` (so the page can never quote a price checkout
+would refuse) and the bespoke tier is appended from `CUSTOM_FEED_TIER` with
+`self_serve: false`. The page renders "Contact us" rather than "Get started"
+for it, and omits the "one-time" qualifier, because an ongoing feed is not a
+one-time purchase.
+
+### The static mount is registered last
+
+`app.mount("/", StaticFiles(...))` matches every path no earlier route claimed.
+Registered before the routers it would shadow the entire API. The ordering in
+`app/main.py` is load-bearing and
+`tests/test_landing.py::test_static_mount_does_not_shadow_the_api` pins it.
+
+### Each compose service builds its own image
+
+`docker compose run --rm pytest` reported 411 passing while the host reported
+435. The `pytest` service has its own image (`import_alpha_agent-pytest`), and
+rebuilding only `fastapi` left it holding a tree with no `tests/test_landing.py`
+in it. Rebuild every service that matters after adding files, or the test run
+silently grades an older commit. This is the same stale-image trap recorded
+under P2.3 fixes.
+
 ## P2.4 — x402 USDC payments on Base, testnet only (2026-09-23)
 
 ### USDC is ERC-20, so the payment is in the logs, not in `tx.value`

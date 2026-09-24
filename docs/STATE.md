@@ -567,6 +567,34 @@ specified. Stripe sells the same credit at **$2.99–$9.90**, so an agent pays
 Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
 
 
+**P3.1 (landing page + sample reports) — FINISHED 2026-09-24.**
+
+- Added `landing/index.html`: static HTML + Tailwind CDN, no build step. Hero,
+  value props, sample-report browser with category tabs, pricing, CTA. Verified
+  responsive down to a true 390px viewport.
+- Added three sample reports to `data/fixtures/` (home organization, kitchen
+  gadgets, pet accessories; five products each). Every product validates
+  against the real `ProductOpportunity` schema, so the marketing payload cannot
+  drift from the contract the API serves.
+- **The samples are published as labelled specimens, not intelligence.** Each
+  carries `status="curated"`, `data_class="curated_synthetic"`, a `disclaimer`
+  field and `curated://` source URIs; the page shows an amber banner above the
+  tables. `ResultStatus.CURATED` forbids quoting curated numbers to a customer,
+  and this is how the page honours that while still showing real depth.
+- Added `app/api/v1/public_endpoints.py`: `GET /v1/public/sample-reports` and
+  `GET /v1/public/pricing`, both unauthenticated, on a router separate from the
+  key-protected `/v1` router.
+- Pricing composes two self-serve packs from `stripe_service.PRICE_TABLE` plus
+  a `$999` custom-feed tier marked `self_serve: false`. **$999 is deliberately
+  absent from PRICE_TABLE** — adding it would make a bespoke feed purchasable
+  through checkout with nothing to fulfil it. See DECISIONS.md.
+- Mounted `StaticFiles` at `/` in `app/main.py`, registered last so it cannot
+  shadow the API. `/health`, `/docs` and `/v1/*` all still resolve.
+- **Verified live in Docker**: `http://localhost:8000/` serves the page; all
+  three reports and all three prices render in a real browser (headless Chrome,
+  DOM inspected and screenshotted at desktop and 390px). **435 tests pass**
+  (411 + 24 new), on the host and via `docker compose run --rm pytest`.
+
 ## In Progress
 
 - P2 monetization. P2.1 through P2.4 are code complete. Stripe is verified
@@ -577,18 +605,21 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
 
 ## Next Actions
 
-1. **Make one real Base Sepolia USDC payment** and call the API with its hash.
+1. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
+   today; self-serve purchase needs an account-creation path first
+2. **Make one real Base Sepolia USDC payment** and call the API with its hash.
    This is the only part of x402 not yet exercised against the chain, and it
    is what confirms the log decoder. See docs/X402_SETUP.md
-2. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
+3. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
    $2.99-$9.90 Stripe charges for the same credit
-3. Replace the curated fixture with sourced data — still the single change
-   that moves responses from `status="curated"` to `status="ok"`
-4. Move the database off the bind mount (named volume, then Postgres). Postgres
+4. Replace the curated fixture with sourced data — still the single change
+   that moves responses from `status="curated"` to `status="ok"`, and the one
+   that would let the landing page show real numbers instead of specimens
+5. Move the database off the bind mount (named volume, then Postgres). Postgres
    also lets append-only be enforced by grants rather than by discipline
-5. Usage metering (per-account request history, not just spend)
-6. Persist the agent lane's tasks/events/artifacts — only reports are stored
-7. Revisit margin weighting: every product clears the 60% saturation cap, so
+6. Usage metering (per-account request history, not just spend)
+7. Persist the agent lane's tasks/events/artifacts — only reports are stored
+8. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
 
 ## Blocked
