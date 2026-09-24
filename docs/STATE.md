@@ -595,6 +595,35 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
   DOM inspected and screenshotted at desktop and 390px). **435 tests pass**
   (411 + 24 new), on the host and via `docker compose run --rm pytest`.
 
+**P3.0 (workers with brains and hands) — FINISHED 2026-09-24.**
+
+- **Brains**: each worker now calls `llm.get_llm()` with a role-specific system
+  prompt — landing (conversion-focused web designer), product (sourcing
+  analyst), engineering (backend engineer). Each prompt carries house rules that
+  outrank the task text: never invent a price, a statistic or a datapoint.
+  FakeLLM stays the default, so tests and a fresh clone need no key.
+- **Hands**: `app/services/tools.py` gives read/write/list confined to
+  `data/work/<goal_id>/`. No network tool, no shell tool — absent, not disabled.
+  Escapes (`..`, absolute paths, symlinks out, `fixtures` segments, oversize)
+  raise `SandboxViolation` and log.
+- Shared step logic moved to `worker_core.py`; the three workers are now thin
+  role entrypoints. `landing_worker` emits `artifact_type="landing_asset"`
+  (was `landing_brief`) since it writes real web assets now.
+- **The model supplies content, the code supplies the path**: deliverables are
+  parsed from the step text, never from model output.
+- **Approval gate**: a completed goal that wrote files emits
+  `human.approval.required` with `reason="artifact_review"` plus a manifest, and
+  stops. `scripts/approve.py list / show / approve / reject`; `show` renders a
+  unified diff against the file being overwritten. Approve is content-addressed,
+  re-validated and all-or-nothing; every decision lands in
+  `data/work/decisions.jsonl`.
+- **Code by the lane, data by humans**: `.json` is not an allowed deliverable,
+  `fixtures` is refused inside the sandbox, and `data/fixtures` is a protected
+  merge target. The P3.1 fixtures remain the curated source. See DECISIONS.md.
+- P3.1 is reused untouched: same `/v1/public/*` endpoints, same StaticFiles
+  mount, no new fixture files.
+- **505 tests pass** (435 + 70 new: 32 sandbox, 29 approval, 9 dogfood).
+
 ## In Progress
 
 - P2 monetization. P2.1 through P2.4 are code complete. Stripe is verified

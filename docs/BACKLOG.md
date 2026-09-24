@@ -45,6 +45,17 @@
 - [x] Acceptance: broker-resilience check (kill kafka, 15s, restart, new goal)
 - [ ] Optional: second host-facing listener so host-side submit_goal.py works
 
+## P3.0 — Workers with brains and hands (done)
+
+- [x] Role-specific system prompts for landing / product / engineering workers
+- [x] Sandboxed file tools confined to `data/work/<goal_id>/` (no network, no shell)
+- [x] Step contract: deliverable paths parsed from step text, artifacts carry sha256
+- [x] Approval gate: manifest + `scripts/approve.py` list / show / approve / reject
+- [x] Dogfood: the lane rewrites the landing page over v0
+- [ ] Multi-file deliverables — a step writes exactly one file today
+- [ ] Let a worker read the current target before rewriting it, so the lane can
+      revise a page instead of replacing it wholesale
+
 ## P1 — Product core
 
 - [x] Add FastAPI skeleton (`app/main.py`, `/health`)

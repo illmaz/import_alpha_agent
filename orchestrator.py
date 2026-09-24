@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from app.services.approval import write_manifest
 from bus import consume, install_signal_handlers, produce
 from events import Event, GoalPlan
 from llm import LLM, SYSTEM_PROMPT, get_llm
@@ -220,6 +221,61 @@ class Orchestrator:
             key=goal_id,
         )
         print(f"[orchestrator] {goal_id}: COMPLETE - {summary}")
+        self._request_review(state)
+
+    def _request_review(self, state: GoalState) -> None:
+        """Ask a human to merge whatever files this goal produced.
+
+        This is not an escalation: the goal already terminated as `completed`,
+        so the liveness invariant is untouched. It rides the same topic because
+        it needs the same pair of eyes, and is told apart by `reason`. A goal
+        that produced no files asks for nothing.
+        """
+        entries = [
+            file_entry
+            for artifact in state.artifacts
+            for file_entry in artifact.payload.get("files", [])
+        ]
+        if not entries:
+            return
+
+        try:
+            manifest = write_manifest(state.goal_id, state.goal_text, entries)
+        except Exception:
+            # A failed manifest must not lose the work: the files are still in
+            # the workspace and the log says which goal to look at.
+            logger.exception("could not write manifest for %s", state.goal_id)
+            return
+
+        self.produce(
+            APPROVAL_TOPIC,
+            Event(
+                event_type="human.approval.required",
+                task_id=state.goal_id,
+                agent="orchestrator",
+                payload={
+                    "goal_id": state.goal_id,
+                    "reason": "artifact_review",
+                    "goal": state.goal_text,
+                    "files": [
+                        {
+                            "target_path": f["target_path"],
+                            "sha256": f["sha256"],
+                            "bytes": f["bytes"],
+                            "summary": f["summary"],
+                            "target_exists": f["target_exists"],
+                        }
+                        for f in manifest["files"]
+                    ],
+                },
+            ),
+            key=state.goal_id,
+        )
+        targets = ", ".join(f["target_path"] for f in manifest["files"])
+        print(
+            f"[orchestrator] {state.goal_id}: REVIEW REQUIRED for {targets} "
+            f"-> scripts/approve.py show {state.goal_id}"
+        )
 
     @staticmethod
     def _synthesis_prompt(state: GoalState) -> str:

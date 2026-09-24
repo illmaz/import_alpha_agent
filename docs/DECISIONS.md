@@ -3,6 +3,90 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P3.0 — Workers with brains and hands (2026-09-24)
+
+### The lane writes code and copy. People write data.
+
+This is the line, and it is not a stylistic preference.
+
+The lane may author HTML, CSS, JS, Markdown and prose. It may not author the
+numbers we sell. Everything this product promises rests on `SourceMetadata` —
+source_url, observed_at, confidence — and on `ResultStatus.CURATED` meaning
+"hand-written by a person, never observed". A worker that can emit a fixture
+can quietly become the origin of figures we tell buyers are hand-checked, and
+nobody would be able to tell afterwards which numbers a human chose.
+
+Enforced in three places, deliberately overlapping:
+
+- `worker_core.DELIVERABLE_RE` does not match `.json`, so a step cannot even
+  name a data file as its deliverable.
+- `tools.FORBIDDEN_SEGMENTS` refuses any workspace path containing `fixtures`.
+- `approval.PROTECTED_TARGET_PREFIXES` refuses `data/fixtures` at the moment
+  of merge, which is the only check that matters if the other two are ever
+  edited away.
+
+The P3.1 fixtures remain the curated source. A worker wanting different sample
+data files a request with a human; it does not write one.
+
+### Capabilities the worker does not have cannot be prompted into existing
+
+`app/services/tools.py` offers read, write and list, confined to
+`data/work/<goal_id>/`. There is no network tool and no shell tool — not
+disabled, absent. Prompt injection cannot talk a worker into using a tool that
+was never passed to it, and the page content a worker writes is untrusted text
+from a model, so the smaller the surface it can act on, the less there is to
+reason about.
+
+Escapes raise `SandboxViolation` and log, rather than clamping to a safe path:
+a worker that believes it wrote `../../.env` and silently wrote
+`work/G-1/.env` instead is a worker whose artifacts lie.
+
+**The model supplies content; the code supplies the path.** `extract_deliverable`
+parses the target from the *step text*, never from model output. A model that
+tries to redirect its own output has nowhere to put the instruction.
+
+One known limit: a step writes exactly one file, and the target path equals the
+workspace path. Multi-file changes need a second pass.
+
+### Merging is a separate act from producing
+
+A completed goal that wrote files emits `human.approval.required` with a
+manifest, and stops. `scripts/approve.py` shows a unified diff against what the
+repository serves today, and only `approve` copies anything onto a real path.
+
+Properties worth keeping:
+
+- **Re-validated at merge.** Targets are checked again in `approve()`, not only
+  when the manifest was written. The manifest is a file on disk and could have
+  been edited in between.
+- **Content-addressed.** Each entry carries a sha256, re-checked before the
+  copy, so a workspace edited after review cannot ride in on an old approval.
+- **All or nothing.** Every entry is validated and read before any file is
+  written, so a poisoned second entry cannot leave the first applied.
+- **Logged.** `data/work/decisions.jsonl` records goal, decision, targets,
+  hashes and timestamp — and `reject` logs before it deletes.
+
+### `artifact_review` is not an escalation, and the liveness invariant still holds
+
+The approval request rides `human.approval.required`, the same topic as stall
+and plan-failure escalations, because it needs the same pair of eyes. It is
+told apart by `reason`.
+
+This does not weaken the P2.5 invariant. A goal still terminates exactly once,
+as `completed`; the review request is a downstream consequence of a goal that
+*finished*, not a fourth terminal state. Escalations halt a goal that could not
+finish. A `reason` of `artifact_review` always follows a `goal.completed` for
+the same goal id.
+
+### A near miss: `lstrip` strips characters, not prefixes
+
+`validate_target` normalised `./x` with `target_path.lstrip("./")`. That strips
+every leading `.` and `/` *character*, so `.git/config` became `git/config` and
+`.env` became `env` — both sailing past the protected-prefix check that existed
+specifically to stop them. Caught by the parametrised protected-target test,
+which is the argument for testing each protected path by name rather than
+asserting the list is non-empty.
+
 ## P3.1 — Landing page and sample reports (2026-09-24)
 
 ### Published samples are labelled synthetic, in the payload and on the page

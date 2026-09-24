@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 import events
 from events import ACTIVE_ROLES, WORKER_ROLES, Event, GoalPlan
+from llm import FakeLLM
 from orchestrator import (
     APPROVAL_TOPIC,
     COMPLETED_TOPIC,
@@ -191,24 +192,33 @@ def test_all_active_roles_are_accepted_by_default():
     assert len(plan.steps) == len(WORKER_ROLES)
 
 
-# ---------- worker stubs ----------
+# ---------- workers ----------
+#
+# P3.0 gave these an LLM, so an analysis step now returns model prose rather
+# than a fixed "stub" string. What has to stay true is the wiring: the task_id
+# survives for correlation, the agent names itself, and no datapoint is ever
+# invented. The file-writing path is covered in tests/test_dogfood.py.
 
 WORKERS = [
     ("product_worker", "task.assigned.product", "product_brief"),
     ("engineering_worker", "task.assigned.engineering", "engineering_brief"),
-    ("landing_worker", "task.assigned.landing", "landing_brief"),
+    # Renamed in P3.0: this worker now writes real web assets, not briefs.
+    ("landing_worker", "task.assigned.landing", "landing_asset"),
 ]
 
 
 @pytest.mark.parametrize("module_name, source_topic, artifact_type", WORKERS)
-def test_worker_emits_a_wellformed_stub_artifact(
+def test_worker_emits_a_wellformed_artifact(
     monkeypatch, module_name, source_topic, artifact_type
 ):
+    import worker_core
+
     module = importlib.import_module(module_name)
     recorder = Recorder()
-    monkeypatch.setattr(module, "produce", recorder)
-    monkeypatch.setattr(module, "WORK_SECONDS", 0)
+    monkeypatch.setattr(worker_core, "produce", recorder)
+    monkeypatch.setattr(worker_core, "get_llm", lambda: FakeLLM(["a considered answer"]))
 
+    # No filename in the title, so this is an analysis step: no file is written.
     assigned = Event(
         event_type="task.assigned",
         task_id="T-1",
@@ -225,9 +235,9 @@ def test_worker_emits_a_wellformed_stub_artifact(
     assert artifact.task_id == "T-1"  # preserved so the orchestrator can correlate
     assert artifact.agent == module_name
     assert artifact.payload["artifact_type"] == artifact_type
-    assert artifact.payload["status"] == "stub"
     assert artifact.payload["datapoints"] == []  # never invent data
-    assert "do the thing" in artifact.payload["summary"]
+    assert artifact.payload["files"] == []
+    assert artifact.payload["summary"] == "a considered answer"
 
 
 @pytest.mark.parametrize("module_name, source_topic, _artifact_type", WORKERS)

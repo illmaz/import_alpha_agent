@@ -26,3 +26,6 @@ data/*.db-shm
 *.sql
 *.sqlite
 *.sqlite3
+
+# Agent lane scratch space: per-goal workspaces, manifests, decision log.
+data/work/
