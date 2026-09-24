@@ -117,7 +117,45 @@ VALID_LANDED_COST = {
 def test_health_returns_ok(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["version"]
+    assert body["uptime_seconds"] >= 0
+    assert body["services"] == {"api": "ok", "database": "ok"}
+
+
+def test_health_answers_head_probes(client: TestClient) -> None:
+    """Monitors often probe with HEAD.
+
+    The StaticFiles mount at "/" claims every request the API routes decline
+    on method, so without HEAD declared explicitly this returns 404 — a health
+    check that reports the service missing while it is perfectly healthy.
+    """
+    assert client.head("/health").status_code == 200
+
+
+def test_health_reports_a_degraded_database_without_failing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe must describe the problem, not become one.
+
+    200 is deliberate: on a single VPS a 503 here would pull out the only
+    node, and a degraded API still serves the landing page and the public
+    endpoints.
+    """
+
+    def boom() -> None:
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr("app.main.get_engine", boom)
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["services"]["api"] == "ok"
+    assert body["services"]["database"].startswith("unavailable:")
 
 
 # --- GET /v1/opportunities ------------------------------------------------

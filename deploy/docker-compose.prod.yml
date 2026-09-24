@@ -1,0 +1,205 @@
+# Production compose. One VPS, no orchestrator, no test containers.
+#
+# Differences from the development file at the repository root:
+#   - nothing is published to the public interface except nginx (80/443).
+#     The API binds 127.0.0.1 and Kafka is not published at all.
+#   - every service has a memory limit. These are ceilings that stop one
+#     runaway process taking the box down, not reservations: they deliberately
+#     sum to more than the 2 GB a $12 droplet has, because steady-state usage
+#     is roughly 1.4 GB (Kafka's JVM is the bulk of it, capped by
+#     KAFKA_HEAP_OPTS) and sizing each limit to its fair share of RAM would
+#     make every service OOM-prone during normal spikes. Swap, configured by
+#     setup.sh, covers the build.
+#   - kafka restarts like everything else. The dev file leaves it without a
+#     restart policy so the broker-resilience check can hold it down.
+#   - the pytest and cli one-shots are absent rather than profile-gated.
+#
+# Run from the repository root on the VPS:
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  depends_on:
+    kafka:
+      condition: service_healthy
+  environment:
+    BOOTSTRAP_SERVERS: kafka:9092
+  env_file:
+    - path: ../.env
+      required: true
+  volumes:
+    - ../data:/app/data
+  logging:
+    # Without this the JSON log file grows until the disk fills, which on a
+    # 50 GB droplet takes longer to notice than it takes to happen.
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  kafka:
+    image: bitnamilegacy/kafka:3.9
+    container_name: importalpha-kafka
+    restart: unless-stopped
+    # No ports section at all: the broker is reachable only on the compose
+    # network. Nothing outside the box has any business speaking to it.
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_CFG_DEFAULT_REPLICATION_FACTOR=1
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      # The JVM will otherwise size its heap against the host's whole 2 GB.
+      - KAFKA_HEAP_OPTS=-Xmx512m -Xms256m
+    volumes:
+      - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  fastapi:
+    <<: *app
+    container_name: importalpha-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
+    ports:
+      # Loopback only. nginx is the only thing that may reach the app, so the
+      # app is never exposed to the internet directly even if ufw is wrong.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: importalpha-nginx
+    restart: unless-stopped
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Certificates written by certbot on the host.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Webroot for ACME HTTP-01 renewals.
+      - /var/www/certbot:/var/www/certbot:ro
+      # The landing page, served from disk rather than proxied.
+      - ../landing:/srv/landing:ro
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  orchestrator:
+    <<: *app
+    container_name: importalpha-orchestrator
+    command: python orchestrator.py
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  router:
+    <<: *app
+    container_name: importalpha-router
+    command: python router_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 160M
+
+  product_worker:
+    <<: *app
+    container_name: importalpha-product-worker
+    command: python product_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  engineering_worker:
+    <<: *app
+    container_name: importalpha-engineering-worker
+    command: python engineering_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  landing_worker:
+    <<: *app
+    container_name: importalpha-landing-worker
+    command: python landing_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  artifact_logger:
+    <<: *app
+    container_name: importalpha-artifact-logger
+    command: python artifact_logger.py
+    deploy:
+      resources:
+        limits:
+          memory: 160M
+
+  report_listener:
+    <<: *app
+    container_name: importalpha-report-listener
+    command: python scripts/report_listener.py
+    deploy:
+      resources:
+        limits:
+          memory: 160M
+
+  report_reaper:
+    <<: *app
+    container_name: importalpha-report-reaper
+    command: python scripts/report_reaper.py
+    deploy:
+      resources:
+        limits:
+          memory: 160M
+
+volumes:
+  kafka_data:

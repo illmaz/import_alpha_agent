@@ -229,9 +229,23 @@ class UserGoalPayload(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    """Liveness and a shallow readiness check, for humans and load balancers.
+
+    `status` is "ok" when every checked dependency answered and "degraded" when
+    one did not. The HTTP code stays 200 either way: this runs on a single VPS,
+    so a probe failure would pull out the only node and serve nothing at all,
+    when a degraded API can still serve the landing page and the public
+    endpoints. Read the body, not just the code.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     status: str = "ok"
+    version: str
+    uptime_seconds: float = Field(ge=0.0, description="Since this process started.")
+    services: Dict[str, str] = Field(
+        default_factory=dict, description="Per-dependency state: ok, or why not."
+    )
 
 
 class ErrorResponse(BaseModel):

@@ -3,6 +3,67 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P4.1 — Deployment scaffolding (2026-09-24)
+
+### The live-credential guards stay, and deploying does not touch them
+
+The brief asked to document `STRIPE_SECRET_KEY=sk_live_...` and a mainnet
+`X402_WALLET_ADDRESS`. Both are refused at the call site today —
+`assert_test_mode` raises `LiveKeyRefused`, `assert_testnet` raises
+`MainnetRefused` — and AGENTS.md says "No wallet custody. No mainnet payments.
+Sandbox/testnet only."
+
+Neither guard was weakened. `docs/DEPLOYMENT.md` documents the *procedure* for
+going live as a gated runbook whose first two steps are completing KYC and
+amending AGENTS.md, because the rule and the code have to agree before either
+changes. Taking real money should cost a deliberate commit that a reviewer can
+find, not an edit to a `.env` file on a server.
+
+### /health returns 200 even when degraded
+
+`status` goes to `degraded` and `services.database` says why, but the status
+code stays 200. This is a single-VPS deployment: a 503 would pull the only node
+out of rotation, and a degraded API still serves the landing page and the
+public endpoints, which is strictly better than serving nothing. Monitors are
+told to alert on the body. On a multi-node deployment this should be revisited.
+
+The database is probed with `SELECT 1` because an unreachable SQLite file is
+the failure most likely to be silent. Kafka deliberately is not probed: the API
+neither produces nor consumes, so a broker outage does not make this process
+unhealthy, and dialling a broker on every probe would make the check slow.
+
+### Three bugs that only surfaced by running it
+
+Config that parses is not config that works. Each of these passed review and
+failed the first real request.
+
+**nginx `add_header` does not merge across levels.** A location that sets any
+`add_header` silently discards every one inherited from the server block. The
+landing page — the single most-visited URL — was the only page served without
+`X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`, because its
+location sets `Cache-Control`. They are now repeated inside that block.
+
+**The Stripe webhook path was wrong, and wrong silently.** The config
+special-cased `location = /webhooks/stripe`; the route is
+`/v1/webhooks/stripe`. The exemption matched nothing and webhooks fell into the
+rate-limited `/v1/` zone — so under load Stripe would have been 429'd, and
+because Stripe retries, a payment that had already succeeded would have been
+credited late rather than never. The failure mode is a delay, which is exactly
+the kind that reaches production unnoticed.
+
+**`HEAD /health` returned 404.** The catch-all StaticFiles mount at `/` claims
+any request the API routes decline on method, turning a 405 into a 404 — so a
+monitor probing with HEAD, which many do by default, would have reported the
+service missing while it was perfectly healthy. `/health` now declares GET and
+HEAD.
+
+### Memory limits are ceilings, not reservations
+
+They sum to more than the droplet's 2 GB on purpose. Measured idle usage of the
+whole stack is 767 MiB (Kafka 449 of it). Sizing each limit to its fair share
+of RAM would make every service OOM-prone during normal spikes, while the point
+of the limits is to stop one runaway container taking the box down.
+
 ## P3.0 — Workers with brains and hands (2026-09-24)
 
 ### The lane writes code and copy. People write data.

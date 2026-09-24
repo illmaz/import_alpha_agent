@@ -60,7 +60,7 @@ def test_landing_page_advertises_all_three_prices():
 
 def test_static_mount_does_not_shadow_the_api():
     """The mount at "/" is registered last; earlier routes must still win."""
-    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/health").json()["status"] == "ok"
     assert client.get("/v1/public/pricing").status_code == 200
 
 

@@ -641,6 +641,41 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
 - `landing/index.html` is now lane-authored and human-approved; the decision is
   recorded in `data/work/decisions.jsonl`.
 
+**P4.1 (deployment scaffolding) — CODE COMPLETE, NOT DEPLOYED. 2026-09-24.**
+
+- Added `deploy/docker-compose.prod.yml`: eleven services, no test one-shots,
+  memory limits and log rotation on every one. The API binds `127.0.0.1:8000`
+  and Kafka publishes no port at all — nginx on 80/443 is the only public
+  surface.
+- Added `deploy/nginx.conf`: TLS, HTTP→HTTPS redirect with an ACME carve-out,
+  per-IP rate limiting (30 r/s site, 10 r/s `/v1/`), security headers, gzip,
+  and the landing page served from disk via an exact-match `location = /` that
+  cannot shadow an API route.
+- Added `deploy/setup.sh` (one-time: Docker, deploy user, ufw, 2 GB swap,
+  unattended upgrades, certbot, first certificate) and `deploy/deploy.sh`
+  (refuses a dirty tree, backs up the database, builds, migrates, restarts,
+  polls `/health` and fails loudly).
+- Added `docs/DEPLOYMENT.md`, including a "what is not verified" section.
+- `/health` now returns version, uptime and per-service state, and answers HEAD.
+  It stays **200 while degraded** — on one box a 503 removes the only node.
+- **Verified by running the production stack locally** behind the real nginx
+  config and a self-signed certificate: 11/11 services up, HTTP→HTTPS 301,
+  landing page served from disk by nginx, `/health` `/docs` and both public
+  endpoints 200, `/v1/opportunities` 401 without a key and 200 with one, rate
+  limiting measured at 27×200 / 33×429 over 60 rapid requests, `/health`
+  unmetered at 60/60, and **a real Stripe test-mode Checkout Session
+  (`cs_test_…`) created end to end through the proxy**. Measured idle memory:
+  767 MiB total.
+- Three bugs found by running it rather than reading it: nginx `add_header` not
+  inheriting into `location = /` (landing page served with no security
+  headers), the Stripe webhook exemption pointing at the wrong path (webhooks
+  would have been rate-limited), and `HEAD /health` returning 404. All fixed;
+  see DECISIONS.md.
+- **Live credentials remain refused by the code.** `assert_test_mode` and
+  `assert_testnet` are untouched; going live is documented as a gated runbook
+  that starts with amending AGENTS.md.
+- **514 tests pass**, host and docker.
+
 ## In Progress
 
 - P2 monetization. P2.1 through P2.4 are code complete. Stripe is verified
@@ -651,21 +686,24 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
 
 ## Next Actions
 
-1. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
+1. **Provision the droplet and run the deploy** — everything in `deploy/` is
+   written and locally verified but has never met a real server. Expect the
+   certbot step to need debugging first. See docs/DEPLOYMENT.md
+2. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
    today; self-serve purchase needs an account-creation path first
-2. **Make one real Base Sepolia USDC payment** and call the API with its hash.
+3. **Make one real Base Sepolia USDC payment** and call the API with its hash.
    This is the only part of x402 not yet exercised against the chain, and it
    is what confirms the log decoder. See docs/X402_SETUP.md
-3. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
+4. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
    $2.99-$9.90 Stripe charges for the same credit
-4. Replace the curated fixture with sourced data — still the single change
+5. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`, and the one
    that would let the landing page show real numbers instead of specimens
-5. Move the database off the bind mount (named volume, then Postgres). Postgres
+6. Move the database off the bind mount (named volume, then Postgres). Postgres
    also lets append-only be enforced by grants rather than by discipline
-6. Usage metering (per-account request history, not just spend)
-7. Persist the agent lane's tasks/events/artifacts — only reports are stored
-8. Revisit margin weighting: every product clears the 60% saturation cap, so
+7. Usage metering (per-account request history, not just spend)
+8. Persist the agent lane's tasks/events/artifacts — only reports are stored
+9. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
 
 ## Blocked
