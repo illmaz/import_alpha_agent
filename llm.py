@@ -26,7 +26,13 @@ SYSTEM_PROMPT = (
     '{"reasoning": "<why this plan>", "steps": [{"role": "<role>", "task": "<what to do>"}]}\n'
     # sorted(): a frozenset's iteration order must not leak into the bytes we
     # send, or the cached prefix changes between processes.
-    f"Allowed roles: {', '.join(sorted(ACTIVE_ROLES))}. Use at most 5 steps.\n\n"
+    f"Allowed roles: {', '.join(sorted(ACTIVE_ROLES))}. Use at most 5 steps, and "
+    "prefer the fewest that do the job — one step is normal for a single file.\n\n"
+    "A step that must produce a file MUST name the exact relative path in its own "
+    "task text, for example: \"write landing/index.html into the workspace\". "
+    "Allowed file types: .html, .css, .js, .md, .txt. A step whose text names no "
+    "path produces written analysis only and no file, so a goal that asks for a "
+    "file and never names one delivers nothing.\n\n"
     "SUMMARIZE: - the steps of a goal have finished and their artifacts follow. "
     "Reply with 2-3 plain sentences describing what was produced. No JSON.\n\n"
     "Never invent facts, prices, supplier names or measurements. Every real "
@@ -103,11 +109,7 @@ FAKE_LANDING_HTML = """<!doctype html>
 
 <section class="wrap">
   <h2>Pricing</h2>
-  <div class="grid">
-    <div class="card"><div class="price">$99</div><p class="lede">Report pack &mdash; 10 report credits.</p></div>
-    <div class="card"><div class="price">$299</div><p class="lede">API credits &mdash; 100 report credits.</p></div>
-    <div class="card"><div class="price">$999</div><p class="lede">Custom category feed &mdash; scoped with you first.</p></div>
-  </div>
+  <div class="grid" id="pricing"><p class="lede">Loading pricing&hellip;</p></div>
 </section>
 
 <footer class="wrap">ImportAlpha Lite &mdash; sample data on this page is synthetic.</footer>
@@ -137,6 +139,19 @@ fetch("/v1/public/sample-reports").then(r => r.json()).then(({ reports }) => {
   paint();
 }).catch(e => {
   document.getElementById("report").innerHTML = "<p>Could not load sample reports.</p>";
+});
+
+// Prices come from the API, never from this file: a hardcoded number here
+// could drift from what checkout actually charges.
+fetch("/v1/public/pricing").then(r => r.json()).then(({ tiers }) => {
+  document.getElementById("pricing").innerHTML = tiers.map(t => `
+    <div class="card">
+      <div class="price">$${(t.amount_cents / 100).toLocaleString("en-US")}</div>
+      <p class="lede">${esc(t.credits ? t.credits + " report credits." : (t.description || ""))}</p>
+      <p class="lede" style="font-size:.85rem">${t.self_serve ? "Buy with a card." : "Contact us &mdash; scoped with you first."}</p>
+    </div>`).join("");
+}).catch(e => {
+  document.getElementById("pricing").innerHTML = "<p>Could not load pricing.</p>";
 });
 </script>
 </body>

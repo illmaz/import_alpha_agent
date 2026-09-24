@@ -55,6 +55,12 @@
 - [ ] Multi-file deliverables — a step writes exactly one file today
 - [ ] Let a worker read the current target before rewriting it, so the lane can
       revise a page instead of replacing it wholesale
+- [ ] Give a worker the response shapes of endpoints it is writing a client for.
+      The live run invented `data.forEach` over objects and field names that do
+      not exist; it was writing against our own API blind (see DECISIONS.md)
+- [ ] A smoke check before a manifest is offered: load the page headless and
+      confirm it renders without console errors. The gate caught the broken
+      live page by human reading, which will not scale
 
 ## P1 — Product core
 

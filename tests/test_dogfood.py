@@ -89,9 +89,11 @@ def test_the_written_page_is_a_real_self_contained_page():
     page = Workspace(GOAL_ID).read_file("landing/index.html")
 
     assert page.lstrip().startswith("<!doctype html")
-    assert "/v1/public/sample-reports" in page  # reuses the P3.1 endpoint
-    for price in ("$99", "$299", "$999"):
-        assert price in page
+    # Both P3.1 endpoints, reused rather than reimplemented. Prices in
+    # particular are fetched, never hardcoded, so the page cannot quote a
+    # figure that checkout would not honour.
+    assert "/v1/public/sample-reports" in page
+    assert "/v1/public/pricing" in page
     assert "synthetic" in page.lower()  # the disclaimer survives the rewrite
 
 
@@ -148,6 +150,42 @@ def test_reject_leaves_v0_serving_and_discards_the_workspace(sandboxed_repo):
 
     assert (sandboxed_repo / "landing" / "index.html").read_text() == V0
     assert not Workspace(GOAL_ID).root.exists()
+
+
+# ---------- the planner must name paths ----------
+
+
+def test_planner_prompt_requires_a_step_to_name_its_file():
+    """Found the hard way on the first live run.
+
+    A real model decomposed this same goal into five steps like "Design the
+    layout and structure of the landing page", none of which named a path, so
+    every step produced prose and the goal delivered no file at all. The
+    planner prompt now has to say it.
+    """
+    from llm import SYSTEM_PROMPT
+
+    assert "MUST name the exact relative path" in SYSTEM_PROMPT
+    assert "landing/index.html" in SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize(
+    "step_text, expected",
+    [
+        ("write landing/index.html into the workspace", "landing/index.html"),
+        ("Write landing/index.html: hero, pricing, sample viewer", "landing/index.html"),
+        ("produce styles/site.css for the page", "styles/site.css"),
+        # The shape the live model actually emitted: no path, so no file.
+        ("Design the layout and structure of the landing page", None),
+        ("Review and test the landing page before finalizing", None),
+        # Data stays human-curated: a JSON deliverable is never extracted.
+        ("write data/fixtures/report.json into the workspace", None),
+    ],
+)
+def test_deliverable_extraction_matches_real_planner_output(step_text, expected):
+    from worker_core import extract_deliverable
+
+    assert extract_deliverable(step_text) == expected
 
 
 # ---------- a goal with no files asks for nothing ----------

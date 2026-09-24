@@ -78,6 +78,39 @@ as `completed`; the review request is a downstream consequence of a goal that
 finish. A `reason` of `artifact_review` always follows a `goal.completed` for
 the same goal id.
 
+### What the first live run taught (and why the gate earned its keep)
+
+Three things only showed up once a real model was driving.
+
+**The planner never named a file.** Asked to rewrite the landing page,
+gpt-4o-mini produced five steps of the shape "Design the layout and structure
+of the landing page". `extract_deliverable` parses the target from step text,
+so none of them produced a file and the goal delivered nothing — it completed
+cleanly, with prose. FakeLLM's canned plan had always named the path, which is
+exactly the class of gap an offline fixture hides. `llm.SYSTEM_PROMPT` now
+states that a file-producing step must name its exact relative path, and after
+that the same goal planned one step and wrote the file.
+
+**A worker will quietly hardcode what it should fetch.** The first accepted
+page inlined $99/$299/$999 as literals. They were right that day, and would
+have silently gone wrong the first time `PRICE_TABLE` changed — the precise
+drift `/v1/public/pricing` exists to prevent. The landing role's house rules
+now forbid hardcoding prices and name the endpoint.
+
+**The live page was rejected, and should have been.** gpt-4o-mini's attempt
+called `data.forEach` on both endpoints, which return objects (`{tiers: […]}`,
+`{reports: […]}`) — so pricing and samples would both have rendered empty. It
+also invented field names that do not exist (`option.price`,
+`report.productName`, `report.opportunityScore`) and advertised "Real-time
+pricing insights" over data the API explicitly labels `curated`, plus a © 2023
+on a page written in 2026. A broken, overclaiming page shipped to strangers is
+the failure this whole phase exists to prevent, and `reject` cost one command.
+
+The lesson for the backlog is not "use a better model". It is that a worker
+writing a client for our own API is doing it blind: it has no way to see the
+response shapes. Letting a worker read the target file and the relevant schema
+before writing is the fix, and it is a bigger change than a prompt tweak.
+
 ### A near miss: `lstrip` strips characters, not prefixes
 
 `validate_target` normalised `./x` with `target_path.lstrip("./")`. That strips

@@ -622,7 +622,24 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
   merge target. The P3.1 fixtures remain the curated source. See DECISIONS.md.
 - P3.1 is reused untouched: same `/v1/public/*` endpoints, same StaticFiles
   mount, no new fixture files.
-- **505 tests pass** (435 + 70 new: 32 sandbox, 29 approval, 9 dogfood).
+- **512 tests pass** (435 + 77 new: 32 sandbox, 29 approval, 16 dogfood).
+- **Dogfood verified live in Docker.** Offline (FakeLLM), goal `G-b022fddd`
+  planned one landing step, wrote `landing/index.html` into its workspace, a
+  manifest appeared, `approve.py show` rendered the diff over v0 and `approve`
+  landed it. `http://localhost:8000/` now serves a page the lane wrote.
+  `reject` on `G-bbe1f050` discarded its workspace and left the served page
+  byte-identical. Sandbox escapes were demonstrated inside the worker
+  container: `../../../../etc/passwd`, `/etc/passwd`, `../fixtures/...` and
+  `data/fixtures/evil.json` all refused with a logged warning.
+- **One live run (gpt-4o-mini) was made, reviewed, and rejected.** It exposed
+  two real gaps, both now fixed: the planner never named a file path (so a goal
+  completed having produced nothing), and a worker hardcoded prices the page is
+  supposed to fetch. Its third problem was not fixable by prompt — it called
+  `data.forEach` on endpoints that return objects and invented field names, so
+  pricing and samples would both have rendered empty. The page shipped is the
+  offline one. See DECISIONS.md.
+- `landing/index.html` is now lane-authored and human-approved; the decision is
+  recorded in `data/work/decisions.jsonl`.
 
 ## In Progress
 
