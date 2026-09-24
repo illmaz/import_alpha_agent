@@ -35,10 +35,23 @@ class Event(BaseModel):
     created_at: str = Field(default_factory=_utc_now_iso)
 
 
+# The topic the approval gate notifies on once a human has decided, and the only
+# topic the publisher consumes. It is named here rather than written twice,
+# because scripts/approve.py and publisher_worker.py are the two ends of one
+# wire: a mismatch between them produces no error and no send.
+HUMAN_APPROVAL_APPROVED = "human.approval.approved"
+
+
 class WorkerRole(str, Enum):
     PRODUCT = "product"
     ENGINEERING = "engineering"
     LANDING = "landing"
+    # The two P3.6 roles draft outward-facing text. They are ordinary roles to
+    # the planner and the router, which is deliberate: a worker that could not
+    # be scheduled would leave every goal touching it stalling on its TTL, and
+    # ACTIVE_ROLES below is what keeps plans executable.
+    OUTREACH = "outreach"
+    MARKETING = "marketing"
 
 
 WORKER_ROLES = tuple(role.value for role in WorkerRole)

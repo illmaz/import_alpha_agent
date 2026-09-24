@@ -87,6 +87,29 @@ services:
     container_name: importalpha-landing-worker
     command: python landing_worker.py
 
+  # P3.6. Both of these research the web and write drafts; neither can send.
+  # They are separate containers because their system prompts, their trigger
+  # topics and — once a real search provider is configured — their rate limits
+  # are different, and running one should not starve the other.
+  outreach_worker:
+    <<: *app
+    container_name: importalpha-outreach-worker
+    command: python outreach_worker.py
+
+  marketing_worker:
+    <<: *app
+    container_name: importalpha-marketing-worker
+    command: python marketing_worker.py
+
+  # The only service allowed to talk to the outside world, and by default it
+  # does not: PUBLISHER_DRY_RUN is true unless .env says otherwise and the keys
+  # are real. It needs ./data for the approval log and the outbox, which the
+  # shared anchor already mounts.
+  publisher:
+    <<: *app
+    container_name: importalpha-publisher
+    command: python publisher_worker.py
+
   artifact_logger:
     <<: *app
     container_name: importalpha-artifact-logger

@@ -3,6 +3,119 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P3.6 — Autonomous outreach, marketing, agent SEO (2026-09-24)
+
+### The approval event is a notification; the decision log is the authority
+
+`scripts/approve.py` emits `human.approval.approved` after a human decides, and
+`publisher_worker` consumes it. The consumer takes **only the goal id** from the
+event and re-reads everything else — body, recipient, channel — from the outbox,
+then checks `approval.is_approved(path, sha256, goal)` against `decisions.jsonl`
+before a byte is sent.
+
+Anyone who can reach the broker can produce an event, so an event cannot be what
+authorises a message. `decisions.jsonl` is written by the process a human ran,
+with the hash of the text they were shown. The forged-event test drives the
+publisher with `PUBLISHER_DRY_RUN=false` and real backends attached to prove it:
+the refusal is not a convenient flag, it is the log lookup.
+
+### Dry-run is the default, and a key that looks like a sample is not a key
+
+`PUBLISHER_DRY_RUN` is true unless the environment says otherwise, and a backend
+is only constructed when dry-run is off *and* its channel's key is real.
+`_real()` refuses empty keys and the `dummy` / `your-` / `your_` prefixes, so
+copying `.env.example` — which is what everyone does — cannot produce a sender.
+
+A dry run logs the channel, the target, the full body and the budget it would
+have charged. Anything less and the log stops being evidence of what would
+happen.
+
+### Payment terms are appended by code, before the hash
+
+The model writes the letter; `payment_facts.append_payment_block()` attaches the
+x402 terms rendered from `payment_terms()`, the same function
+`/v1/agent/info` answers with. Then the bytes are hashed and offered for
+approval.
+
+A model asked to paraphrase payment terms will eventually paraphrase one wrong,
+and a letter that points an agent at a wallet or price the endpoint contradicts
+loses their money or our credibility. Appending before hashing means the text a
+human approved is the text that leaves, and it is why there is no "generate the
+payment paragraph" tool a worker could misuse. With no wallet configured,
+`payment_block()` raises `PaymentNotConfigured` rather than rendering a null
+address.
+
+### Two kinds of gate entry, two decision rules
+
+`merge` entries are all-or-nothing — half a repository change is a broken tree.
+`publish` entries are decided per file: five prospects are five independent
+judgements, and "approve two, reject three" is the normal case. A publish entry
+carries `target_path = None` whatever the worker sent, because a draft leaves
+via a *recipient*; letting it also name a repo path would give one approved file
+two ways out when the publisher only checks one.
+
+The consequence: a partial approve *is* the whole decision. `approve <goal>
+--only` two of five queues those two and appends a second log line refusing the
+other three, so the batch closes rather than hanging with three drafts in
+limbo. `rejected_files` is merged rather than rewritten, because a goal can be
+decided more than once — one draft withdrawn first, the rest approved after —
+and the earlier refusals are part of the record a human reads back.
+
+### A draft has no target path, and nothing downstream may assume one
+
+Publish entries carry `target_path: None` deliberately: a letter has a recipient,
+and letting it also name a repository path would give one approved file two ways
+out of the system, only one of which the publisher checks. The consequence was
+found live rather than in review — `orchestrator._request_review()` printed its
+"REVIEW REQUIRED for …" line with `", ".join(f["target_path"] …)`, raised
+`TypeError` on the first outreach goal, and took the daemon's artifact-consumer
+thread with it. The manifest for that goal had already been written, so the run
+looked half-successful; every goal after it completed quietly with no manifest at
+all, and a worker kept drafting into a queue no human could see.
+
+Anything that speaks about a manifest entry now goes through
+`orchestrator.destination()`: a merge entry by its target path, a draft by
+`channel->recipient`. The `human.approval.required` payload carries it as
+`destination` so a consumer never has to derive — and therefore never has to
+guess — where a file was headed.
+
+### A flag must not be able to make a decision the human did not make
+
+`approve.py --only` started as a single-value, comma-separated flag. The other
+spelling is the obvious one — `--only a --only b` — and argparse keeps the last
+value, so the gate approved one letter and recorded the other as a human
+**rejection** in an append-only log that exists precisely because those decisions
+are not revisitable. Selection flags are now `action="append"` and both spellings
+mean the same set; a `--only` that names no path is refused rather than read as
+"everything", because the failure it prevents is approving a batch nobody looked
+at.
+
+### No worker can send, structurally
+
+`outreach_worker` and `marketing_worker` have two tools — `search_web`,
+`read_url` — and no transport import. `app.services.publisher` is imported by
+exactly one module, `publisher_worker.py`, and an AST scan over the repo fails
+the suite if that ever stops being true. The publisher is a separate container
+for the same reason a payment provider gets a different key from the app: a
+compromised drafting lane still has no path to a message.
+
+### FakeSearchAPI is the default, and its data says so
+
+Search sits behind a provider interface (`SEARCH_PROVIDER=fake|serper|brave|tavily`)
+whose offline default returns a fixture corpus on RFC-2606 `.example` domains, so
+the dogfood runs need no network and no key. Every result carries
+`confidence=0.25` and `data_class="fixture"`, so a fabricated prospect cannot be
+mistaken for a sourced one later — the AGENTS.md rule is that data carries its
+provenance, not that a test double has to be identified by reading code.
+
+### Directory submissions have no backend, and say so
+
+A directory listing is a form on someone else's website. `DirectoryFormBackend`
+exists so that a live run refuses with instructions instead of logging something
+that reads as a completed submission: claiming a listing was filed when it
+wasn't is worse than not filing it, and the dry-run log is only useful if it can
+be trusted.
+
 ## P3.7 — Agent discovery (2026-09-24)
 
 ### Publishing this makes the x402 price a public offer

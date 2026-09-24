@@ -144,8 +144,14 @@ def test_replan_after_stall_counts_against_the_attempt_budget():
 # ---------- active role registry ----------
 
 
-def test_default_active_roles_cover_every_worker_role():
-    assert ACTIVE_ROLES == frozenset(WORKER_ROLES)
+def test_default_active_roles_cover_every_worker_role(monkeypatch):
+    # The claim is about the code's default, so it must not read a developer's
+    # .env. ACTIVE_ROLES is resolved at import time from the environment, and a
+    # local file narrowing it would fail this on one machine and pass on
+    # another — the opposite of what an invariant is for.
+    monkeypatch.delenv("ACTIVE_ROLES", raising=False)
+
+    assert events._parse_active_roles() == frozenset(WORKER_ROLES)
 
 
 def test_active_roles_can_be_narrowed_by_env(monkeypatch):
@@ -155,7 +161,11 @@ def test_active_roles_can_be_narrowed_by_env(monkeypatch):
 
 
 def test_active_roles_env_rejects_unknown_role(monkeypatch):
-    monkeypatch.setenv("ACTIVE_ROLES", "product,marketing")
+    # Deliberately not a role anyone would add. This used "marketing" as the
+    # example of an unknown role until P3.6 made marketing a real one, which
+    # turned a passing test into a tautology about a name that can never
+    # legitimately appear. A made-up word cannot go stale that way.
+    monkeypatch.setenv("ACTIVE_ROLES", "product,head_of_sales")
 
     with pytest.raises(ValueError, match="unknown roles"):
         events._parse_active_roles()
@@ -180,7 +190,8 @@ def test_orchestrator_never_dispatches_to_an_inactive_role(monkeypatch):
     assert recorder.on(APPROVAL_TOPIC)[0].payload["reason"] == "plan_validation_failed"
 
 
-def test_all_active_roles_are_accepted_by_default():
+def test_all_active_roles_are_accepted_by_default(monkeypatch):
+    monkeypatch.setattr(events, "ACTIVE_ROLES", frozenset(WORKER_ROLES))
     plan = GoalPlan.model_validate(
         {
             "goal_id": "g",

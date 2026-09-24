@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services import x402
+from app.services.agent_offer import payment_terms
 from app.services.x402_middleware import CREDIT_PRICE_BASE_UNITS, PAYMENT_HEADER
 
 router = APIRouter(tags=["agent-discovery"])
@@ -89,36 +90,12 @@ def _networks() -> List[NetworkInfo]:
 
 
 def _payment_block() -> Dict[str, Any]:
-    """Live payment parameters, shaped like the 402 challenge's `accepts` entry."""
-    block: Dict[str, Any] = {
-        "scheme": "x402-usdc-transfer",
-        "asset": "USDC",
-        "decimals": x402.USDC_DECIMALS,
-        "amount_base_units": CREDIT_PRICE_BASE_UNITS,
-        "amount_usdc": CREDIT_PRICE_BASE_UNITS / (10**x402.USDC_DECIMALS),
-        "credits_granted": 1,
-        "header": PAYMENT_HEADER,
-        "min_confirmations": x402.MIN_CONFIRMATIONS,
-    }
+    """Live payment parameters, shaped like the 402 challenge's `accepts` entry.
 
-    # A deployment with no wallet configured must still answer this endpoint:
-    # an agent learning "payment is unavailable here" is a useful answer, and
-    # far better than a 500.
-    try:
-        network = x402.get_network()
-        block["network"] = network.name
-        block["asset_contract"] = x402.get_usdc_contract()
-    except Exception as exc:  # noqa: BLE001 - surfaced to the caller below
-        block["network"] = None
-        block["unavailable"] = f"network not configured: {type(exc).__name__}"
-
-    try:
-        block["pay_to"] = x402.get_seller_address()
-    except x402.X402NotConfigured:
-        block["pay_to"] = None
-        block["unavailable"] = "seller wallet not configured on this deployment"
-
-    return block
+    Lives in app/services/agent_offer.py so the outreach drafts attach the
+    identical terms rather than restating them.
+    """
+    return payment_terms()
 
 
 @router.get(

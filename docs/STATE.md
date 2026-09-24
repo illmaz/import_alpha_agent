@@ -751,6 +751,83 @@ re-measure on the droplet rather than picking one.
   content types; `/v1/agent/info` reports 10,000 base units = 0.01 USDC on
   base-sepolia with a configured wallet and 2 confirmations.
 
+**P3.6 (autonomous outreach, marketing, agent SEO) — FINISHED 2026-09-24.**
+
+The lane now drafts things that are meant to leave the machine, and nothing of
+that kind can leave without a named human decision. Three containers added:
+`outreach_worker` (B2B development: two read-only tools, one letter per contact
+route a lookup actually returned), `marketing_worker` (content marketer *and*
+agent-SEO distributor: directory/marketplace/registry submission manifests),
+`publisher` (the only sender, consuming `human.approval.approved`).
+`app/services/publisher.py` verifies every item against the append-only decision
+log before it will consider a send, re-hashes the body it was shown, and applies
+per-channel daily budgets (outreach 20, marketing 5, directory 10). It runs
+dry-run by default: `PUBLISHER_DRY_RUN=true`, and the sample keys in
+`.env.example` (`dummy_key_for_dry_run`) are refused by name even if someone
+flips the flag. Payment terms are appended by `payment_facts.py` from the same
+function `/v1/agent/info` answers with, *before* hashing, so a model cannot
+paraphrase a wallet address and a human approves the bytes that are sent.
+
+- New modules: `search.py`, `app/services/payment_facts.py`,
+  `app/services/publisher.py`, `outreach_worker.py`, `marketing_worker.py`,
+  `publisher_worker.py`; `worker_core.handle_tool_step`; publish-kind entries in
+  the approval gate; `PUBLISH_CHANNELS`; `.env.example` block; three services in
+  both compose files.
+- **713 tests pass** (+160 over the 553 baseline), host and docker, in random and
+  declaration order. The no-bypass set is the point: forged events, a
+  hand-written outbox file, a tampered body, an unapproved path, and an AST scan
+  proving `publisher_worker.py` is the only module in the repository that can
+  reach a sender.
+- **Dogfood A** — goal `G-01a61355`, "Find 5 e-commerce agent builders and draft
+  outreach messages to each of them. Include our x402 payment details." → 5
+  letters, 8 lookups, each aimed at a distinct route returned by the fixtures
+  (`team@cartwave.example.com`, `hello@tikrank.example.com`, `ops@binford…`,
+  `mods@dropshipdeepsix…`, `builder@ledgerlight…`). Approved 2 / rejected 3 →
+  `WOULD EMAIL G-01a61355::outreach_out/draft-1.md::340cc993f4e52fac ->
+  team@cartwave.example.com [outreach 1/20]` and the same for draft-3 at
+  `[outreach 2/20]`, each printing the full payload including the payment block.
+  No socket opened.
+- **Dogfood B** — goal `G-7ff48d62`, "Find 10 AI agent directories or registries
+  and draft submission manifests for our API." → 10 manifests (Name, one-line and
+  long description, OpenAPI URL, discovery links, categories, use cases, pricing,
+  auth, plus the "say this, do not skip it" honesty lines about synthetic samples
+  and testnet-only settlement). Approved 3 / rejected 7 → `WOULD DIRECTORY … ->
+  https://promptstack.example.com/tools [directory 1/10]`, then `[directory
+  2/10]` and `[directory 3/10]`.
+
+**Four defects, all found by running it rather than testing it.**
+
+1. `approval.pending_files()` read "pending" off the manifest alone, so after
+   `reject <goal> --only one-draft` a following whole-goal `approve` treated the
+   refused draft as undecided — queued it, logged it as approved, and handed the
+   publisher a message a human had already said no to. Reproduced live before
+   fixing.
+2. `approve()` *rewrote* `rejected_files`, so the second sitting of a batch
+   silently dropped the refusals from the first. Now merged.
+3. `orchestrator._request_review()` built its log line with
+   `", ".join(f["target_path"] …)`. Publish entries carry `None` there by design,
+   so the join raised `TypeError` mid-completion, the exception killed the
+   orchestrator's artifact-consumer thread, and the next goal drafted 10
+   manifests that never got a manifest-of-record: `approve.py list` stayed empty
+   and nothing said why. Fixed with `orchestrator.destination()`, which names a
+   draft by `channel->recipient` and a merge by its path. Caught only because
+   run B came back with no pending review.
+4. `approve.py --only` was a single-value flag, so the natural
+   `--only a --only b` is argparse last-wins: it approved one letter and wrote a
+   `REJECTED` line for the other into the append-only log — a human refusal that
+   nothing downstream can take back. `--only` now accumulates (repeats and
+   commas both work) and a blank `--only` is refused rather than meaning
+   "everything". The mis-decided batch, `G-6fd768e6` (1 approved, 4 rejected),
+   is left in the log as it happened.
+
+**Still true about this lane**: every prospect and directory it named is a
+fixture (`FakeSearchAPI`, `.example` domains, `confidence=0.25`), so no draft has
+ever described a real company; the letters print `https://<host>` because
+`PUBLIC_BASE_URL` is unset and no domain exists yet — inventing one would be
+worse; `channel="social"` has never been exercised end to end; and a directory
+submission has no real backend at all by design, so a non-dry-run publish of one
+is a refusal, not a post.
+
 ## In Progress
 
 - P2 monetization. P2.1 through P2.4 are code complete. Stripe is verified
@@ -765,28 +842,40 @@ re-measure on the droplet rather than picking one.
    $0.01/credit to any agent that looks, against $2.99-$9.90 on the card
    tiers. Testnet-only settlement is all that stands between that gap and
    real money (see DECISIONS.md)
-2. **Push, provision the droplet, then deploy.** `deploy/` and the whole P3.7
-   discovery layer are in two **unpushed** commits, and `deploy.sh` deploys
-   `origin/main` — so nothing is deployable until `git push origin main`
-   (needs approval; the script now refuses if you skip it). Then a $12/mo
-   droplet and a domain with an A record, neither of which exists yet. See
-   docs/DEPLOYMENT.md; expect the certbot step to need debugging first.
-3. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
+2. **Push, provision the droplet, then deploy.** `deploy/`, the whole P3.7
+   discovery layer and the P3.6 drafting lane are in **unpushed** commits, and
+   `deploy.sh` deploys `origin/main` — so nothing is deployable until
+   `git push origin main` (needs approval; the script now refuses if you skip it).
+   Then a $12/mo droplet and a domain with an A record, neither of which exists
+   yet. See docs/DEPLOYMENT.md; expect the certbot step to need debugging first.
+3. **Set `PUBLIC_BASE_URL` the moment a domain exists.** Until then every
+   outreach letter and directory manifest prints `https://<host>/v1/reports`,
+   which is honest but unsendable — it is the last thing standing between the
+   P3.6 drafts and a real batch going out.
+4. **Point the drafting lane at a real search provider.** `SEARCH_PROVIDER=fake`
+   is what every run so far used, so all 15 prospects and directories it has
+   named are fixtures. `serper|brave|tavily` are wired and unexercised, and a
+   real provider is what makes `.example` addresses disappear.
+5. **First real send** — needs `PUBLISHER_DRY_RUN=false`, a real `EMAIL_API_KEY`,
+   a Resend sender domain on the above, and approval to send. Nothing has ever
+   run the live path, and the budget state file has never been shared between two
+   processes.
+6. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
    today; self-serve purchase needs an account-creation path first
-4. **Make one real Base Sepolia USDC payment** and call the API with its hash.
+7. **Make one real Base Sepolia USDC payment** and call the API with its hash.
    This is the only part of x402 not yet exercised against the chain, and it
    is what confirms the log decoder. See docs/X402_SETUP.md
-5. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
+8. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
    $2.99-$9.90 Stripe charges for the same credit
-6. Replace the curated fixture with sourced data — still the single change
+9. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`, and the one
    that would let the landing page show real numbers instead of specimens
-7. Move the database off the bind mount (named volume, then Postgres). Postgres
-   also lets append-only be enforced by grants rather than by discipline
-8. Usage metering (per-account request history, not just spend)
-9. Persist the agent lane's tasks/events/artifacts — only reports are stored
-10. Revisit margin weighting: every product clears the 60% saturation cap, so
-   the margin term does no ranking work (see DECISIONS.md)
+10. Move the database off the bind mount (named volume, then Postgres). Postgres
+    also lets append-only be enforced by grants rather than by discipline
+11. Usage metering (per-account request history, not just spend)
+12. Persist the agent lane's tasks/events/artifacts — only reports are stored
+13. Revisit margin weighting: every product clears the 60% saturation cap, so
+    the margin term does no ranking work (see DECISIONS.md)
 
 ## Blocked
 

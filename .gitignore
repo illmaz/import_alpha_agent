@@ -29,3 +29,7 @@ data/*.db-shm
 
 # Agent lane scratch space: per-goal workspaces, manifests, decision log.
 data/work/
+
+# Qwen Code's own session directory: background-shell transcripts, scratch
+# captures, worktrees. Never part of the product.
+.qwen/

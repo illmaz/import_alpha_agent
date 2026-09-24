@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
@@ -216,6 +217,11 @@ class FakeLLM(LLM):
             return self._deliverable(user)
         if user.startswith("PLAN:"):
             return self._plan(user)
+        # A tool-loop turn is addressed by the worker's own prompt, so the
+        # offline stand-in answers it with the same shape rather than falling
+        # through to the generic line, which the parser would reject.
+        if user.startswith("TASK:") and "\nTURN: " in user:
+            return self._tool_turn(user)
         return "Offline FakeLLM response: no model was called for this step."
 
     @staticmethod
@@ -225,9 +231,259 @@ class FakeLLM(LLM):
             return FAKE_LANDING_HTML
         return f"/* Placeholder for {path}, produced offline by FakeLLM. */\n"
 
+    # --- the tool loop ----------------------------------------------------
+    # A tool-using step is a transcript, not a single reply, so FakeLLM plays
+    # the whole conversation: search, read what came back, draft one file per
+    # target, done. It reads the observations it was handed rather than
+    # reciting fixed text, so a dogfood draft names the targets the search
+    # actually returned. That makes the offline run an end-to-end test of the
+    # plumbing instead of a replay of a string.
+
+    _OUTREACH_QUERIES = (
+        "e-commerce agent builders shopify tiktok seller bots",
+        "indie hackers dropshipping margin tools builder",
+        "dropshipper community forum shipping weight problems",
+    )
+    _MARKETING_QUERIES = (
+        "ai agent tool directories api marketplaces registries",
+        "langchain hubs composio registries agent integration directory",
+    )
+
+    @staticmethod
+    def _turn_number(user: str) -> int:
+        for line in user.splitlines():
+            if line.startswith("TURN:"):
+                digits = "".join(ch for ch in line.split()[1] if ch.isdigit())
+                return int(digits or 1)
+        return 1
+
+    @staticmethod
+    def _task_of(user: str) -> str:
+        for line in user.splitlines():
+            if line.startswith("TASK:"):
+                return line.removeprefix("TASK:").strip()
+        return ""
+
+    @staticmethod
+    def _observations(user: str, label: str) -> list:
+        """Parse what earlier turns of this loop actually returned."""
+        found = []
+        for line in user.splitlines():
+            marker = f"OBSERVATION {label} -> "
+            if not line.startswith(marker):
+                continue
+            try:
+                found.append(json.loads(line[len(marker) :]))
+            except json.JSONDecodeError:
+                continue
+        return found
+
+    def _tool_turn(self, user: str) -> str:
+        task = self._task_of(user)
+        lowered = task.lower()
+        marketing = any(
+            word in lowered
+            for word in ("director", "registr", "marketplace", "submission", "manifest", "seo")
+        )
+        queries = self._MARKETING_QUERIES if marketing else self._OUTREACH_QUERIES
+
+        wanted_match = re.search(r"\b(\d{1,3})\b", task)
+        wanted = int(wanted_match.group(1)) if wanted_match else (3 if marketing else 2)
+        wanted = max(1, min(wanted, 10))
+
+        results = [row for obs in self._observations(user, "search_web") for row in obs.get("results", [])]
+        pages = {obs["url"]: obs for obs in self._observations(user, "read_url") if "url" in obs}
+        # Only a write that got a path counts as written. A refused draft is
+        # reported under the same label, and counting it would tell the loop its
+        # work was done when nothing was on disk.
+        written = [w for w in self._observations(user, "write") if w.get("path")]
+        used_queries = self._calls(user, "search_web")
+        reads_issued = self._calls(user, "read_url")
+
+        # Candidates, deduped by URL, in the order the lookups ranked them. The
+        # position in this list — not a set of already-covered recipients —
+        # decides which target is drafted next. Matching on recipients cannot
+        # work: a draft is echoed back aimed at whatever the recipient field
+        # holds, which is an address for a prospect that publishes one and a page
+        # URL for one that does not, so the filter never matches and the loop
+        # writes the same letter five times while four prospects go uncontacted.
+        seen: set = set()
+        targets = []
+        for row in results:
+            url = str(row.get("url") or "")
+            if url and url not in seen:
+                seen.add(url)
+                targets.append(row)
+        # How many drafts this loop can produce at all: one per target found.
+        draftable = min(wanted, len(targets))
+
+        # 1. One search per query, so the corpus is actually consulted.
+        if used_queries < len(queries):
+            return json.dumps(
+                {"call": {"tool": "search_web", "args": {"query": queries[used_queries], "max_results": 8}}}
+            )
+
+        # 2. Read context for the targets we intend to write about. Each read
+        # costs a turn out of the loop's budget, so the cap is what keeps a
+        # ten-target goal from spending every turn on page fetches.
+        if reads_issued < min(len(targets), draftable, 5):
+            return json.dumps({"call": {"tool": "read_url", "args": {"url": targets[reads_issued]["url"]}}})
+
+        # 3. Draft one file per distinct target, using what the lookups said.
+        if len(written) < draftable:
+            pick = targets[len(written)]
+            return json.dumps({"write": self._draft(pick, pages.get(pick["url"]), marketing)})
+
+        kind = "submission manifest" if marketing else "outreach message"
+        return json.dumps(
+            {
+                "done": f"Wrote {len(written)} {kind}(s), one per target, from {len(targets)} distinct "
+                f"candidate(s) returned by {len(queries)} lookup(s); read {len(pages)} page(s)."
+            }
+        )
+
+    @staticmethod
+    def _calls(user: str, tool: str) -> int:
+        """How many times this loop already invoked `tool`.
+
+        Only `ACTION` lines count. The instruction block of the prompt shows one
+        example call per tool, and a substring search over the whole prompt reads
+        those examples as history — which silently spends a search and a page
+        fetch before the loop has taken a single step.
+        """
+        count = 0
+        for line in user.splitlines():
+            if not line.startswith("ACTION "):
+                continue
+            body = line[len("ACTION ") :]
+            try:
+                echoed = json.loads(body)
+            except json.JSONDecodeError:
+                # The transcript caps an echo at 600 characters, so a long action
+                # can arrive cut off. Fall back to the substring test rather than
+                # losing the step.
+                count += 1 if f'"tool": "{tool}"' in body else 0
+                continue
+            if isinstance(echoed, dict) and str(echoed.get("tool") or "") == tool:
+                count += 1
+        return count
+
+    @staticmethod
+    def _draft(target: dict, page: Optional[dict], marketing: bool) -> dict:
+        name = str(target.get("title") or "there").strip()
+        url = str(target.get("url") or "")
+        snippet = str(target.get("snippet") or "").strip()
+        # The address comes from the page or nothing. An outreach draft aimed at
+        # an invented address is a wasted send, and worse, a sent message whose
+        # one factual claim is wrong.
+        contact = str((page or {}).get("contact") or "").strip()
+        requires = str((page or {}).get("requires") or "").strip()
+        context = str((page or {}).get("text") or snippet).replace("\n", " ").strip()
+        recipient = contact or url
+
+        if marketing:
+            body = "\n".join(
+                [
+                    f"# Submission manifest — ImportAlpha Lite at {name}",
+                    "",
+                    f"Target: {url}",
+                    "",
+                    "## Fields",
+                    "",
+                    "- **Name:** ImportAlpha Lite",
+                    "- **One-line description:** China-to-US product viability and landed-cost "
+                    "answers, as an API.",
+                    "- **Long description:** Given a product or a category, returns an opportunity "
+                    "score, a China unit-cost range, a landed cost, a margin, a competition signal "
+                    "and risk flags. Every datapoint carries a source URL, an observation timestamp "
+                    "and a confidence.",
+                    "- **OpenAPI URL:** /openapi.json, generated from the running service",
+                    "- **Agent discovery:** /llms.txt  ·  /agent-guide  ·  /v1/agent/info",
+                    "- **Categories:** shopping, pricing, data-quality",
+                    "- **Use cases:** restock decisions for thin-catalogue sellers, landed-cost "
+                    "quoting inside a sourcing agent, pre-listing viability screening",
+                    "- **Pricing:** per call in USDC over x402, one credit per verified transfer; "
+                    "card packs also exist. Live numbers at /v1/agent/info.",
+                    "- **Auth:** bearer API key, or no account at all via the payment header",
+                    "",
+                    f"## Why it fits {name}",
+                    "",
+                    f"What the listing says: {snippet}",
+                    "",
+                    f"What the page asks submitters for: {requires or context[:420]}",
+                    "",
+                    "## Say this, do not skip it",
+                    "",
+                    "- Sample reports served by this API are synthetic and labelled synthetic. They "
+                    "are not to be quoted as observed results.",
+                    "- Settlement is testnet-only in this deployment. Read `networks[].accepted` at "
+                    "/v1/agent/info before describing payment as available.",
+                    "- Coverage today is home organisation and adjacent categories, not global.",
+                ]
+            )
+            return {
+                "content": body,
+                "channel": "directory",
+                "recipient": url,
+                "summary": f"Directory submission manifest for {name}",
+            }
+
+        greeting = name.split(" ")[0]
+        body = "\n".join(
+            [
+                f"Subject: Landed-cost answers {name} does not have to estimate",
+                "",
+                f"Hi {greeting},",
+                "",
+                f"What we found on {name}: {context[:420]}",
+                "",
+                "That is the gap we sell into. ImportAlpha is an API, not a dashboard: ask whether a "
+                "product is worth importing from China to the US and get back an opportunity score, a "
+                "China unit-cost range, a landed cost, a margin, a competition signal and risk flags — "
+                "each with a source URL, an observation timestamp and a confidence.",
+                "",
+                "Two things worth saying plainly. The sample reports we publish are synthetic and "
+                "labelled that way, so do not quote them as observed results. And the data behind the "
+                "scoring is curated by hand today rather than crawled, which means the honest claim is "
+                "a sourced answer on a narrow category — home organisation and what sits next to it — "
+                "not global coverage.",
+                "",
+                "If you want it behind an agent, the whole loop is below. No account, no key request, "
+                "nothing to fill in:",
+            ]
+        )
+        return {
+            "content": body,
+            "channel": "email",
+            "recipient": recipient,
+            "summary": f"Outreach draft to {name}",
+        }
+
     @staticmethod
     def _plan(user: str) -> str:
-        goal = user.removeprefix("PLAN:").strip().lower()
+        goal = user.removeprefix("PLAN:").strip()
+        lowered = goal.lower()
+        # The same doctrine as the landing branch, and for the same reason: a
+        # canned offline lane has to be driveable from a plain-text goal, or
+        # testing P3.6 means paying a model to plan it. The step carries the
+        # goal verbatim rather than a paraphrase, because the paraphrase loses
+        # the count — "draft 5 messages" is the whole spec of the step, and a
+        # double that drops it produces two drafts and calls the run a success.
+        if "outreach" in lowered or "agent builder" in lowered or "dropshipper" in lowered:
+            return json.dumps(
+                {
+                    "reasoning": "Offline plan: one outreach deliverable.",
+                    "steps": [{"role": "outreach", "task": goal}],
+                }
+            )
+        if any(word in lowered for word in ("director", "regist", "marketplace", "seo", "marketing")):
+            return json.dumps(
+                {
+                    "reasoning": "Offline plan: one agent-SEO deliverable.",
+                    "steps": [{"role": "marketing", "task": goal}],
+                }
+            )
+        goal = lowered
         if "landing" in goal or "index.html" in goal:
             return json.dumps(
                 {

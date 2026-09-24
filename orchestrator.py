@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from app.services.approval import write_manifest
+from app.services.approval import PUBLISH, entry_kind, write_manifest
 from bus import consume, install_signal_handlers, produce
 from events import Event, GoalPlan
 from llm import LLM, SYSTEM_PROMPT, get_llm
@@ -39,6 +39,24 @@ STEP_TTL_SECONDS = float(os.environ.get("STEP_TTL_SECONDS", "120"))
 TICK_SECONDS = float(os.environ.get("STALL_TICK_SECONDS", "10"))
 
 logger = logging.getLogger("orchestrator")
+
+
+def destination(entry: Dict[str, Any]) -> str:
+    """Where a manifest file goes, phrased so a list of them is readable.
+
+    A merge entry goes to a repository path. A publish entry has no target path
+    *by design* — an approved letter leaves through a recipient, not a file
+    location — so joining on `target_path` raised TypeError on the first
+    outreach goal and took the orchestrator's artifact thread down with it: the
+    goal mid-flight lost its review step, and every goal after it got no
+    manifest at all.
+    """
+    if entry_kind(entry) == PUBLISH:
+        publish = entry.get("publish") or {}
+        channel = publish.get("channel") or "?"
+        recipient = publish.get("recipient") or "(broadcast)"
+        return f"{channel}->{recipient}"
+    return str(entry.get("target_path") or entry.get("workspace_path") or "?")
 
 
 @dataclass
@@ -260,6 +278,7 @@ class Orchestrator:
                     "files": [
                         {
                             "target_path": f["target_path"],
+                            "destination": destination(f),
                             "sha256": f["sha256"],
                             "bytes": f["bytes"],
                             "summary": f["summary"],
@@ -271,7 +290,7 @@ class Orchestrator:
             ),
             key=state.goal_id,
         )
-        targets = ", ".join(f["target_path"] for f in manifest["files"])
+        targets = ", ".join(destination(f) for f in manifest["files"])
         print(
             f"[orchestrator] {state.goal_id}: REVIEW REQUIRED for {targets} "
             f"-> scripts/approve.py show {state.goal_id}"

@@ -40,6 +40,29 @@ def test_database(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         os.environ["DATABASE_URL"] = previous
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_lane_workspace(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Keep the agent lane's scratch directory out of the repository.
+
+    `data/work/` holds real goal workspaces, the decision log and the outbox.
+    A test that reaches `approval()` or `Workspace()` without pinning
+    WORKSPACE_ROOT itself would otherwise read — and approve into — the live
+    one, which makes the suite's result depend on whatever the last dogfood run
+    left behind. It did exactly that.
+
+    A test that wants its own workspace still sets the variable per-test and
+    wins, because a function-scoped monkeypatch runs after this.
+    """
+    root = tmp_path_factory.mktemp("lane") / "work"
+    previous = os.environ.get("WORKSPACE_ROOT")
+    os.environ["WORKSPACE_ROOT"] = str(root)
+    yield root
+    if previous is None:
+        os.environ.pop("WORKSPACE_ROOT", None)
+    else:
+        os.environ["WORKSPACE_ROOT"] = previous
+
+
 @pytest.fixture(autouse=True)
 def clean_tables(test_database: Path) -> Iterator[None]:
     """Empty every table around each test.

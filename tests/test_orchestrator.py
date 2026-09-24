@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from events import GoalPlan
+from events import Event, GoalPlan
 from llm import FakeLLM
 from orchestrator import (
     APPROVAL_TOPIC,
@@ -166,6 +166,58 @@ def test_goal_completes_once_every_step_reports_an_artifact():
     assert completed[0].payload["goal_id"] == GOAL_ID
     assert completed[0].payload["steps_completed"] == 2
     assert completed[0].payload["summary"]
+
+
+def test_destination_names_a_draft_by_where_it_leaves_not_by_a_repo_path():
+    from orchestrator import destination
+
+    assert destination({"kind": "merge", "target_path": "landing/index.html"}) == "landing/index.html"
+    draft = {
+        "kind": "publish",
+        "target_path": None,
+        "publish": {"channel": "directory", "recipient": "https://skills.example.com/submit"},
+    }
+    assert destination(draft) == "directory->https://skills.example.com/submit"
+    assert destination({"kind": "publish", "target_path": None}) == "?->(broadcast)"
+
+
+def test_a_goal_whose_files_are_drafts_still_reaches_review(capsys):
+    """The shape that killed the live run: five letters, no repository targets.
+
+    `_request_review` joined `f["target_path"]` for its log line. Publish
+    entries carry None there on purpose — an approved draft leaves through a
+    recipient, not a file location — so the join raised TypeError, which took
+    the orchestrator's artifact thread with it. The manifest for the goal in
+    flight was written and the human was never told; every goal after it got no
+    manifest at all, so a worker kept drafting into a queue nobody could see.
+    """
+    orchestrator, recorder = build([plan_json(step_count=1)])
+    orchestrator.handle_goal(goal_event())
+    draft_artifact = Event(
+        event_type="artifact.created",
+        task_id=f"{GOAL_ID}-S1",
+        agent="outreach_worker",
+        payload={
+            "summary": "1 draft(s)",
+            "files": [
+                {
+                    "workspace_path": "outreach_out/draft-1.md",
+                    "kind": "publish",
+                    "sha256": "0" * 64,
+                    "bytes": 2026,
+                    "summary": "letter to Cartwave AI",
+                    "publish": {"channel": "email", "recipient": "team@cartwave.example.com"},
+                }
+            ],
+        },
+    )
+
+    orchestrator.handle_artifact(draft_artifact)
+
+    required = recorder.on(APPROVAL_TOPIC)
+    assert len(required) == 1, "a goal of drafts never asked for review"
+    assert required[0].payload["files"][0]["destination"] == "email->team@cartwave.example.com"
+    assert "REVIEW REQUIRED for email->team@cartwave.example.com" in capsys.readouterr().out
 
 
 def test_completion_summary_comes_from_the_llm():

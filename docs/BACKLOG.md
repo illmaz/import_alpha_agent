@@ -62,6 +62,67 @@
       confirm it renders without console errors. The gate caught the broken
       live page by human reading, which will not scale
 
+## P3.6 — Autonomous outreach, marketing, agent SEO (done)
+
+- [x] `search.py` — provider interface, `FakeSearchAPI` default (offline fixture
+      corpus, `.example` domains, `data_class="fixture"`, `confidence=0.25`)
+- [x] `payment_facts.py` — the x402 block rendered from the same source
+      `/v1/agent/info` answers with, appended before hashing; plus the
+      `human_only_violations()` ban list
+- [x] `outreach_worker.py` — B2B development agent: two read-only tools, one
+      letter per contact route a lookup actually returned
+- [x] `marketing_worker.py` — content marketer **and** agent-SEO distributor:
+      submission manifests for directories, marketplaces and registries
+- [x] `worker_core.handle_tool_step` — the loop; `draft_outreach` and
+      `draft_submission` refuse a human-gated ask, an absent channel, and a draft
+      with no payment terms
+- [x] `app/services/publisher.py` — the only sender: decision-log verification,
+      content re-checks, per-channel daily budgets, pluggable backends
+- [x] `publisher_worker.py` — consumes `human.approval.approved`; `--drain`,
+      `--check`
+- [x] Per-file approval for publish entries in the gate; `approve.py` show /
+      approve / reject / publish with `--only`
+- [x] Dry-run by default; sample keys refused by name; no backend at all in a dry
+      run
+- [x] Three new containers (outreach, marketing, publisher) in dev and prod
+      compose
+- [x] 160 new tests, including the no-bypass assertions: forged events,
+      hand-forged outbox items, tampered bodies, and an AST scan proving only
+      `publisher_worker.py` can reach a sender
+- [x] Four defects found only by running it live: `pending_files()` let a refused
+      draft be re-approved by a later whole-goal `approve`; `approve()` overwrote
+      `rejected_files` instead of merging, losing an earlier refusal;
+      `orchestrator._request_review` joined on `target_path` — None for a draft,
+      so the TypeError killed its artifact thread and the next goal's 10 drafts
+      never got a manifest; `approve.py --only` kept only its last value, so
+      `--only a --only b` logged a refusal nobody had made
+- [x] Dogfood: 5 e-commerce agent builders → 2 approved, 3 rejected, publisher
+      logs "would send"; 10 directories → 3 approved, publisher logs
+      "would submit"
+- [ ] Real search provider. `SEARCH_PROVIDER=serper|brave|tavily` is wired and
+      unexercised — every run so far used fixtures, so no draft has ever named a
+      prospect that exists
+- [ ] Real sends. `PUBLISHER_DRY_RUN=false` has never been run against Resend or
+      a social backend, and the budget state file has never been shared between
+      two live processes
+- [ ] Rate-limit the *inflow*, not just the outflow: one goal can queue 50
+      letters today and the daily cap only decides how many leave
+- [ ] A reply path. An approved letter can go out; nothing reads what comes
+      back, so "business development" stops at first contact
+- [ ] Social drafts are unexercised. `channel="social"` and the Twitter/LinkedIn
+      backends exist, but the offline lane has only ever drafted directory
+      manifests — so thread stitching and the 280-char ceiling (which the backend
+      currently enforces by silently truncating) have never been tested with a
+      real post
+- [ ] Every draft prints `https://<host>/v1/reports` because `PUBLIC_BASE_URL` is
+      unset. Honest, but unsendable: no letter can go out until the deployment
+      has a domain to name (see P4.1 blockers)
+- [ ] A handler exception still kills a consumer thread. The orchestrator's
+      artifact thread died on the `target_path` join above and kept dying
+      silently: the daemon stayed up, `/health` was green, and goals after it got
+      no manifest. Wrap handler dispatch so one bad goal cannot blind the lane,
+      and escalate when it happens
+
 ## P3.7 — Agent discovery (done)
 
 - [x] `public/llms.txt` served at `/llms.txt` as text/plain
@@ -174,7 +235,8 @@
 - [ ] Wire the pricing CTAs to real Stripe Checkout — they are mailto links
       today, because self-serve checkout needs an account before it has a key
 - [ ] Demo agent script that consumes the API
-- [ ] Outreach list + draft messages (draft-only, human approves sends)
+- [x] Outreach list + draft messages (draft-only, human approves sends) — the
+      P3.6 lane; every address so far comes from the `FakeSearchAPI` fixtures
 
 ## P4 — Quality & safety
 
