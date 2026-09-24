@@ -86,6 +86,33 @@ than bolted onto this task.
 
 ## P4.1 — Deployment scaffolding (2026-09-24)
 
+### deploy.sh deploys a remote ref, so it must refuse an unpushed HEAD
+
+`deploy.sh` runs `git fetch origin && git reset --hard origin/$BRANCH` on the
+server. That is the right design — what lands on the box is a commit you can
+name, not whatever was on a laptop — but it has a consequence that bit us the
+day after it was written: **the deploy reports success for code that is not
+there.**
+
+When the discovery layer shipped, `deploy/` and `public/` existed only in two
+local commits. `origin/main` was still the previous day's work, with no
+`deploy/`, no `public/` and a `/health` returning bare `{"status":"ok"}`. Run
+the deploy in that state and the server would have reset to a tree with no
+discovery layer, built cleanly, started, and passed the script's own `/health`
+poll — because the health check passes either way. The feature being deployed
+is exactly the one that would have gone missing, and the only symptom is that
+`https://…/llms.txt` 404s.
+
+So `deploy.sh` now fetches the branch and refuses unless `HEAD` is an ancestor
+of `origin/$BRANCH`, printing the commits that would be skipped. The general
+rule: when a tool's failure mode is a *silent* success, the fix is a guard that
+fails before the work, not a check that runs after it.
+
+`docs/DEPLOYMENT.md` had the same blind spot in prose — its post-deploy
+verification listed `/health` and `/` and never the discovery URLs. It now
+carries a section that checks GET *and* HEAD on all five, because a manifest
+that 404s on HEAD tells a probing agent it does not exist.
+
 ### The live-credential guards stay, and deploying does not touch them
 
 The brief asked to document `STRIPE_SECRET_KEY=sk_live_...` and a mainnet

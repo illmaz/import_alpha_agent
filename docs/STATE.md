@@ -676,6 +676,47 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
   that starts with amending AGENTS.md.
 - **514 tests pass**, host and docker.
 
+### P4.1 re-verification against the discovery layer — 2026-09-24
+
+P4.1's local verification ran *before* P3.7 added the discovery routes, so the
+nginx config had never carried them. Re-ran the production proxy (real
+`deploy/nginx.conf`, self-signed cert, domain substituted) against the live API
+and confirmed all five public routes answer **200 on GET and HEAD** with correct
+content types: `/llms.txt` text/plain, `/agent-guide` text/markdown,
+`/openapi.json`, `/v1/agent/info`, `/health`. Landing page keeps its security
+headers (`add_header` inheritance fix still holds); HTTP→HTTPS 301; rate
+limiting measured again at 25×200 / 15×429 over 40 rapid `/v1/` requests, with
+`/health` unmetered at 60/60. **553 tests pass.**
+
+**The deploy path was broken for this task specifically, and now fails loudly.**
+`deploy.sh` hard-resets the server to `origin/$BRANCH`, but `deploy/` and
+`public/` existed only in two **unpushed** local commits — `origin/main` was
+still `cad76bf`, which has no `deploy/`, no `public/`, no `agent_endpoints.py`,
+and a `/health` that returns bare `{"status":"ok"}`. Running the deploy as
+written would have reported success, passed its own health poll, and shipped a
+tree with no discovery layer at all: the exact thing this task exists to
+publish. The failure is silent because the health check passes either way.
+
+- `deploy/deploy.sh` now fetches `origin/$BRANCH` and refuses to run unless
+  `HEAD` is an ancestor of it, printing the commits that would be skipped.
+  Verified firing against the real repo state, naming `b60ca8b` and `12be5bd`.
+- `docs/DEPLOYMENT.md` gained a "Confirm the agent discovery layer is actually
+  public" section — the runbook previously verified only `/health` and `/`, and
+  never mentioned `/llms.txt`. Commands were checked against the live response:
+  the payment block is `.payment`/`.networks`, and `base-mainnet` does report
+  `"accepted": false`.
+
+**Not ready for production deployment yet.** Blocked on three things, all of
+which need a human: `git push origin main` (shared state, and the only real fix
+for the above); a DigitalOcean droplet ($12/mo — AGENTS.md forbids spending
+without approval, and no `doctl` or `DIGITALOCEAN_*` token exists here); and a
+domain with an A record, without which certbot cannot issue a certificate.
+Measured memory note: the compose header says ~1.4 GB steady state and
+`DEPLOYMENT.md` says 767 MiB. The 767 figure was taken from the *prod* stack,
+where `KAFKA_HEAP_OPTS` caps the JVM; the dev stack has no cap and measures
+1035 MiB with Kafka alone at 722 MiB. Both are true of different stacks —
+re-measure on the droplet rather than picking one.
+
 **P3.7 (agent discovery layer) — FINISHED 2026-09-24.**
 
 - Added `public/llms.txt` (llms.txt spec shape: H1, blockquote summary, link
@@ -724,9 +765,12 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
    $0.01/credit to any agent that looks, against $2.99-$9.90 on the card
    tiers. Testnet-only settlement is all that stands between that gap and
    real money (see DECISIONS.md)
-2. **Provision the droplet and run the deploy** — everything in `deploy/` is
-   written and locally verified but has never met a real server. Expect the
-   certbot step to need debugging first. See docs/DEPLOYMENT.md
+2. **Push, provision the droplet, then deploy.** `deploy/` and the whole P3.7
+   discovery layer are in two **unpushed** commits, and `deploy.sh` deploys
+   `origin/main` — so nothing is deployable until `git push origin main`
+   (needs approval; the script now refuses if you skip it). Then a $12/mo
+   droplet and a domain with an A record, neither of which exists yet. See
+   docs/DEPLOYMENT.md; expect the certbot step to need debugging first.
 3. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
    today; self-serve purchase needs an account-creation path first
 4. **Make one real Base Sepolia USDC payment** and call the API with its hash.

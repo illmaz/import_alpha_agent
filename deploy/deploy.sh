@@ -36,6 +36,23 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
+# The server hard-resets to origin/$BRANCH, so it deploys the *remote* ref. A
+# commit that exists only here is not deployed late — it is skipped entirely,
+# and the tree that lands on the box is whatever the last pushed commit
+# contained. That fails quietly: the deploy reports success, /health answers,
+# and the feature you came to ship is simply absent.
+if ! git fetch --quiet origin "$BRANCH" 2>/dev/null; then
+  echo "error: cannot reach origin/$BRANCH. Check the remote and your network." >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor HEAD "origin/$BRANCH" 2>/dev/null; then
+  echo "error: HEAD ($(git rev-parse --short HEAD)) is not on origin/$BRANCH." >&2
+  echo "       The server would deploy origin/$BRANCH instead, without:" >&2
+  git log --oneline "origin/$BRANCH..HEAD" >&2
+  echo "       Push first (git push origin $BRANCH) — this needs a human." >&2
+  exit 1
+fi
+
 LOCAL_SHA="$(git rev-parse --short HEAD)"
 log "Deploying $BRANCH ($LOCAL_SHA) to $DEPLOY_HOST:$APP_DIR"
 
