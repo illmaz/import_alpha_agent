@@ -3,6 +3,87 @@
 Durable architectural decisions and their reasoning. `docs/STATE.md` tracks
 what is done; this file records *why* things are the way they are.
 
+## P3.7 — Agent discovery (2026-09-24)
+
+### Publishing this makes the x402 price a public offer
+
+`x402_middleware` has carried a warning since P2.4: one credit costs 10,000
+USDC base units ($0.01) over x402, while the card tiers work out at $2.99 to
+$9.90 per credit. An agent pays roughly **300x to 990x less than a human for
+the same report.**
+
+Until now that was an internal default nobody outside could see. `llms.txt`,
+`/agent-guide` and `/v1/agent/info` turn it into a machine-readable offer that
+any agent can find and act on at scale, which is the entire point of the
+layer — and also what makes the number urgent rather than theoretical. It is
+still `X402_CREDIT_PRICE_BASE_UNITS`, still configurable, and still unchanged
+here, because pricing is a business decision and quietly "fixing" it inside a
+discovery task would be the wrong way to make it. "Decide the x402 price"
+moves up the Next Actions list instead.
+
+Testnet-only settlement is the thing currently standing between that price and
+real money.
+
+### base-mainnet is advertised as known and refused, not omitted
+
+The brief asked for "supported networks (base-sepolia, base-mainnet)". The code
+refuses mainnet — `assert_testnet` raises `MainnetRefused` — and AGENTS.md
+forbids mainnet custody, so listing it as supported would invite an agent to
+send real USDC for a call that then fails, with no way for us to return it.
+
+Omitting it is no better: an agent that asks about a network we do not mention
+learns nothing, and may assume. So `/v1/agent/info` returns every network the
+code knows, each with an explicit `accepted` boolean and, when false, a note
+saying the funds are not recoverable. `test_every_accepted_network_is_a_testnet`
+makes an accepted mainnet a test failure rather than a judgement call.
+
+### Static files do not carry live payment parameters
+
+`llms.txt` is checked in. A wallet address is not: it changes, and a stale one
+in a file an agent trusts sends someone's USDC somewhere we do not control.
+So the static documents describe the *shape* of payment and point at
+`/v1/agent/info` for the values, which reads them from the same configuration
+the middleware charges against.
+
+`/v1/agent/info` deliberately mirrors the field names of the `accepts` block in
+the 402 challenge. An agent that reads discovery and an agent that reads a
+rejection see the same vocabulary, and
+`test_agent_info_price_matches_the_402_challenge` pins them together.
+
+### No static public/openapi.json
+
+The brief listed one. FastAPI generates `/openapi.json` from the code on every
+request, so a checked-in copy would be wrong the first time a route changed —
+and wrong in the worst way, since the thing agents parse to learn the contract
+would disagree with the server. The task's own wording ("FastAPI already
+generates this") points the same way. What was needed was a test that it is
+public and valid, which exists.
+
+### landing_worker drafted the section, because marketing_worker does not exist
+
+The brief named a `marketing_worker`. The roles are `product`, `engineering`
+and `landing`, enforced by `events.ACTIVE_ROLES` and `GoalPlan` validation, and
+`landing_worker` is already the conversion-focused web-design role that owns
+this page. Adding a fourth role would have meant a new worker, a new compose
+service and a new topic for one section of copy.
+
+### HEAD, for the third time
+
+`HEAD /llms.txt`, `/agent-guide` and `/v1/agent/info` all returned 404 on first
+run — the same defect as `/health` in P4.1. The StaticFiles mount at `/` claims
+any request the API routes decline on method, so a 405 becomes a 404.
+
+It matters more here than it did for `/health`: crawlers and agents probe with
+HEAD to check a document exists and what type it is before fetching it, so a
+discovery manifest that 404s on HEAD tells a machine it does not exist and
+discovery stops. Fixed per route again.
+
+Three occurrences is the point at which the per-route fix stops being the right
+one. The systemic answer is for the catch-all mount to decline paths an API
+route already claimed, so a method mismatch surfaces as 405. That is a change
+to P3.1's mount with real regression surface, so it is on the backlog rather
+than bolted onto this task.
+
 ## P4.1 — Deployment scaffolding (2026-09-24)
 
 ### The live-credential guards stay, and deploying does not touch them

@@ -64,6 +64,33 @@
   <div class="grid" id="pricing"><p class="lede">Loading pricing&hellip;</p></div>
 </section>
 
+<section class="wrap">
+  <h2>For agents</h2>
+  <p class="lede">Machine-readable discovery. No signup, no browser step, no
+  human in the loop. Pay per call in USDC over x402, or use an API key.</p>
+  <div class="grid">
+    <div class="card">
+      <strong><a href="/llms.txt">/llms.txt</a></strong>
+      <p class="lede">The manifest: what this sells, how to authenticate, what it costs.</p>
+    </div>
+    <div class="card">
+      <strong><a href="/agent-guide">/agent-guide</a></strong>
+      <p class="lede">Markdown guide: the x402 payment loop, testnet faucets, worked curl.</p>
+    </div>
+    <div class="card">
+      <strong><a href="/openapi.json">/openapi.json</a></strong>
+      <p class="lede">The full contract, generated from the code.</p>
+    </div>
+    <div class="card">
+      <strong><a href="/v1/agent/info">/v1/agent/info</a></strong>
+      <p class="lede">Live payment parameters: wallet, price, accepted networks.</p>
+    </div>
+  </div>
+  <p class="lede" style="font-size:.9rem">Testnet only today: payment is settled
+  on Base Sepolia. Read <code>networks[].accepted</code> from
+  <code>/v1/agent/info</code> before sending anything.</p>
+</section>
+
 <footer class="wrap">ImportAlpha Lite &mdash; sample data on this page is synthetic.</footer>
 
 <script>

@@ -62,6 +62,22 @@
       confirm it renders without console errors. The gate caught the broken
       live page by human reading, which will not scale
 
+## P3.7 — Agent discovery (done)
+
+- [x] `public/llms.txt` served at `/llms.txt` as text/plain
+- [x] `public/agent-guide.md` served at `/agent-guide` as text/markdown
+- [x] `/openapi.json` confirmed public and valid (generated, not checked in)
+- [x] `app/api/v1/agent_endpoints.py` — `/v1/agent/info`, public
+- [x] "For Agents" section on the landing page, drafted by the lane
+- [x] Every discovery route answers GET and HEAD without credentials
+- [ ] **Decide the x402 price.** Discovery publishes $0.01/credit against
+      $2.99-$9.90 on the card tiers — a 300-990x gap any agent can now find
+- [ ] Stop the catch-all StaticFiles mount swallowing method mismatches, so a
+      wrong-method request is a 405 rather than a 404. Three per-route HEAD
+      patches so far (`/health`, the two discovery files, `/v1/agent/info`)
+- [ ] Let an agent obtain an API key without a human — the guide currently has
+      to say "contact the operator", which is the one manual step left
+
 ## P1 — Product core
 
 - [x] Add FastAPI skeleton (`app/main.py`, `/health`)

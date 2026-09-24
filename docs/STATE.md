@@ -676,6 +676,40 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
   that starts with amending AGENTS.md.
 - **514 tests pass**, host and docker.
 
+**P3.7 (agent discovery layer) — FINISHED 2026-09-24.**
+
+- Added `public/llms.txt` (llms.txt spec shape: H1, blockquote summary, link
+  sections) served at `/llms.txt` as `text/plain`, and `public/agent-guide.md`
+  served at `/agent-guide` as `text/markdown` — the x402 payment loop, faucet
+  links, worked curl for both auth methods, response shapes and error codes.
+- Added `app/api/v1/agent_endpoints.py`: `GET /v1/agent/info` returns live
+  payment parameters, both auth methods, the network registry and the endpoint
+  list. Public, on a router with no auth dependency.
+- `/openapi.json` was already public; it is now tested as such. **No static
+  copy was checked in** — FastAPI generates it, and a checked-in duplicate
+  would disagree with the server the first time a route changed.
+- Static documents describe the *shape* of payment and defer to
+  `/v1/agent/info` for wallet, price and network, so a stale checked-in wallet
+  address can never misdirect an agent's funds. `/v1/agent/info` mirrors the
+  field names of the 402 challenge, and a test pins the two together.
+- **base-mainnet is listed as `accepted: false`** with a note that funds are
+  not recoverable, rather than advertised or omitted. A test makes any accepted
+  mainnet a failure.
+- **Dogfood**: goal `G-a40a0a89`, landing_worker drafted the "For Agents"
+  section, `approve.py show` rendered **+27 / -0** — pure addition, no human
+  content lost — and it was approved and is being served. (The brief named a
+  `marketing_worker`; roles are product/engineering/landing and `landing_worker`
+  owns this page. See DECISIONS.md.)
+- Fixed: `HEAD` returned 404 on `/llms.txt`, `/agent-guide` and
+  `/v1/agent/info` — the catch-all mount defect again. A crawler probing with
+  HEAD was being told the manifest did not exist. Also removed a duplicate
+  OpenAPI `operation_id` introduced by P4.1's `/health`, which was polluting
+  the very spec agents parse.
+- **553 tests pass** (+39), host and docker.
+- **Live**: all four discovery URLs return 200 on GET and HEAD with correct
+  content types; `/v1/agent/info` reports 10,000 base units = 0.01 USDC on
+  base-sepolia with a configured wallet and 2 confirmations.
+
 ## In Progress
 
 - P2 monetization. P2.1 through P2.4 are code complete. Stripe is verified
@@ -686,24 +720,28 @@ Aligned values: `$2.99 = 2990000`, `$9.90 = 9900000`.
 
 ## Next Actions
 
-1. **Provision the droplet and run the deploy** — everything in `deploy/` is
+1. **Decide the x402 price.** `/llms.txt` and `/v1/agent/info` now publish
+   $0.01/credit to any agent that looks, against $2.99-$9.90 on the card
+   tiers. Testnet-only settlement is all that stands between that gap and
+   real money (see DECISIONS.md)
+2. **Provision the droplet and run the deploy** — everything in `deploy/` is
    written and locally verified but has never met a real server. Expect the
    certbot step to need debugging first. See docs/DEPLOYMENT.md
-2. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
+3. **Wire the landing page CTAs to Stripe Checkout** — every button is a mailto
    today; self-serve purchase needs an account-creation path first
-3. **Make one real Base Sepolia USDC payment** and call the API with its hash.
+4. **Make one real Base Sepolia USDC payment** and call the API with its hash.
    This is the only part of x402 not yet exercised against the chain, and it
    is what confirms the log decoder. See docs/X402_SETUP.md
-4. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
+5. **Decide the x402 price** before mainnet is ever considered — $0.01 vs the
    $2.99-$9.90 Stripe charges for the same credit
-5. Replace the curated fixture with sourced data — still the single change
+6. Replace the curated fixture with sourced data — still the single change
    that moves responses from `status="curated"` to `status="ok"`, and the one
    that would let the landing page show real numbers instead of specimens
-6. Move the database off the bind mount (named volume, then Postgres). Postgres
+7. Move the database off the bind mount (named volume, then Postgres). Postgres
    also lets append-only be enforced by grants rather than by discipline
-7. Usage metering (per-account request history, not just spend)
-8. Persist the agent lane's tasks/events/artifacts — only reports are stored
-9. Revisit margin weighting: every product clears the 60% saturation cap, so
+8. Usage metering (per-account request history, not just spend)
+9. Persist the agent lane's tasks/events/artifacts — only reports are stored
+10. Revisit margin weighting: every product clears the 60% saturation cap, so
    the margin term does no ranking work (see DECISIONS.md)
 
 ## Blocked

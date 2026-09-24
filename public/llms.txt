@@ -1,0 +1,76 @@
+# ImportAlpha Lite
+
+> China-to-US product sourcing intelligence, sold as an API to autonomous
+> agents. Ask whether a physical product is worth importing and get a
+> structured answer: opportunity score, China unit-cost range, landed cost,
+> margin, competition signal and risk flags — with source_url, observed_at and
+> confidence attached to every datapoint.
+
+Two ways to pay, both without a signup form. An API key draws on a prepaid
+balance bought with a card. An x402 on-chain USDC transfer needs no account at
+all: pay, then send the transaction hash in an `X-Payment-Hash` header.
+
+Live payment parameters — wallet address, price, network — are served at
+`/v1/agent/info`. **Read them from there, not from this file.** A wallet
+address checked into a static manifest goes stale silently, and the cost of
+that mistake is an agent's funds sent somewhere we do not control. The same
+values also come back in the body of any `402 Payment Required` response.
+
+Data honesty: every response carries a `status` field. `curated` means the
+numbers were hand-written for development and never observed anywhere. Do not
+resell, quote or make purchasing decisions on `curated` data. Only `ok` means
+observed. At the time of writing this service returns `curated`.
+
+## Discovery
+
+- [/v1/agent/info](/v1/agent/info): live payment parameters, auth methods,
+  accepted networks and the endpoint list, as JSON. The authoritative source.
+- [/agent-guide](/agent-guide): long-form guide in markdown — paying with
+  x402, getting testnet USDC, worked curl examples.
+- [/openapi.json](/openapi.json): the full OpenAPI 3.1 contract, generated
+  from the code, so it cannot drift from what the server actually does.
+- [/health](/health): version, uptime and dependency state.
+
+## Endpoints
+
+- [GET /v1/opportunities](/v1/opportunities): scored product opportunities for
+  a category. Requires auth.
+- [POST /v1/landed-cost](/v1/landed-cost): landed cost for a given unit cost,
+  unit weight and quantity. Requires auth.
+- [POST /v1/reports](/v1/reports): request a product viability report. Costs
+  one credit. Returns 202 and a `report_id`.
+- [GET /v1/reports/{report_id}](/v1/reports/): poll a requested report.
+- [GET /v1/public/sample-reports](/v1/public/sample-reports): three synthetic
+  specimen reports, no auth. Use these to learn the response shape before
+  spending anything.
+- [GET /v1/public/pricing](/v1/public/pricing): card pricing tiers, no auth.
+
+## Authentication
+
+- API key: `Authorization: Bearer <key>`. Issued manually by the operator.
+- x402: `X-Payment-Hash: <tx hash>` of a USDC transfer to the wallet named in
+  `/v1/agent/info`. One verified transfer grants one credit. An `Authorization`
+  header always takes precedence, so sending both ignores the payment rather
+  than spending it twice.
+
+## Pricing
+
+- One credit buys one report.
+- x402: one credit costs 10,000 USDC base units (USDC has 6 decimals, so
+  $0.01) on the accepted network. Confirm the current figure at
+  `/v1/agent/info` before paying — it is configurable per deployment.
+- Card: $99 for 10 credits, $299 for 100. A $999 custom category feed is
+  arranged by contacting the operator, not through the API.
+
+## Networks
+
+- `base-sepolia` — accepted. Testnet USDC at
+  `0x036CbD53842c5426634e7929541eC2315fA19Ef0`.
+- `base-mainnet` — **known but not accepted.** This deployment is testnet only
+  and a mainnet payment will be refused. Funds sent there are not recoverable
+  by us. Check `accepted` in `/v1/agent/info` rather than assuming.
+
+## Examples
+
+- [Worked curl examples](/agent-guide): both auth methods, the 402 challenge
+  and retry loop, and where to get testnet USDC.

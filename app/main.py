@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+from app.api.v1.agent_endpoints import router as agent_router
 from app.api.v1.endpoints import router as v1_router
 from app.api.v1.public_endpoints import router as public_router
 from app.api.v1.webhooks import router as webhooks_router
@@ -64,11 +65,7 @@ app = FastAPI(
 app.add_middleware(X402PaymentMiddleware)
 
 
-# HEAD as well as GET: uptime monitors and load balancers routinely probe with
-# HEAD, and the StaticFiles mount at "/" would otherwise answer 404 for it —
-# the catch-all claims any request the API routes decline on method, turning
-# what should be a 405 into a missing-page answer from a health check.
-@app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthResponse, tags=["ops"])
+@app.get("/health", response_model=HealthResponse, tags=["ops"])
 async def health() -> HealthResponse:
     """Liveness plus a shallow readiness check.
 
@@ -90,6 +87,19 @@ async def health() -> HealthResponse:
     )
 
 
+# Uptime monitors and load balancers routinely probe with HEAD, and the
+# StaticFiles mount at "/" would otherwise answer 404 for it — the catch-all
+# claims any request the API routes decline on method, turning what should be
+# a 405 into a missing-page answer from a health check. Registered as its own
+# route rather than methods=["GET","HEAD"] on one: that emits two OpenAPI
+# operations sharing an operation_id, and the resulting duplicate-ID warning
+# lands in the spec that agents parse. Hidden from the schema for the same
+# reason — HEAD adds nothing a reader of the GET does not already know.
+@app.head("/health", include_in_schema=False)
+async def health_head() -> HealthResponse:
+    return await health()
+
+
 async def _database_state() -> str:
     """"ok", or a short reason. Never raises: a probe must not 500."""
     try:
@@ -108,6 +118,9 @@ app.include_router(webhooks_router)
 app.include_router(billing_pages_router)
 # Public marketing surface: sample reports and the price table, no API key.
 app.include_router(public_router)
+# Agent discovery: /llms.txt, /agent-guide, /v1/agent/info. Registered before
+# the static mount, which would otherwise claim /llms.txt and /agent-guide.
+app.include_router(agent_router)
 
 
 LANDING_DIR = Path(__file__).resolve().parents[1] / "landing"
